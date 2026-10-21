@@ -15,7 +15,8 @@ import uuid
 CHECKS = ['lint', 'typecheck', 'format:check', 'test', 'build']
 IGNORED = {'.git', 'node_modules', 'dist', 'coverage'}
 RUNTIME_ENV = ['-e', 'XDG_DATA_HOME=/tmp/xdg/data', '-e', 'XDG_CONFIG_HOME=/tmp/xdg/config',
-               '-e', 'XDG_CACHE_HOME=/tmp/xdg/cache', '-e', 'XDG_STATE_HOME=/tmp/xdg/state']
+               '-e', 'XDG_CACHE_HOME=/tmp/xdg/cache', '-e', 'XDG_STATE_HOME=/tmp/xdg/state',
+               '-e', 'PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false']
 
 
 def allowed(path):

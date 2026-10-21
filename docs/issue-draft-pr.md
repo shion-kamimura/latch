@@ -45,6 +45,8 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、指定したI
 
 Node.js 26.12.0 / pnpm 12.14.0 / OpenCode 1.19.3を固定しています。DeepSeek公式ドキュメントに従いAPIモデルIDは`deepseek-flash`を使用します。2026年10月21日時点ではDeepSeek-V4.1-Flash-1017に対応するaliasです。モデルaliasの将来的な差し替えはこのリポジトリでは固定できません。
 
+依存関係はイメージbuild時に`pnpm install --frozen-lockfile`で導入します。オフライン実行時は`PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false`により、コピーした依存関係に対する自動再インストールを抑止します。検証コマンドやlockfileは変更しません。
+
 自動化自体の境界テスト:
 
 ```sh
