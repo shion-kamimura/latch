@@ -9,7 +9,7 @@ import tempfile
 import tarfile
 import uuid
 
-from run import CHECKS, agent_config
+from run import CHECKS, RUNTIME_ENV, agent_config
 
 
 def main():
@@ -49,6 +49,7 @@ http.createServer((req, res) => {
         with tempfile.TemporaryDirectory() as work:
             Path(work, 'AGENTS.md').write_text('Reply smoke-ok without tools.\n')
             result = command('run', '--name', agent, '--network', name,
+                *RUNTIME_ENV,
                 '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
                 '--user', f'{os.getuid()}:{os.getgid()}', '--memory=4g', '--pids-limit=256',
                 '--tmpfs', '/tmp:rw,size=512m',
@@ -77,6 +78,7 @@ http.createServer((req, res) => {
             for index, check in enumerate(CHECKS):
                 setup = 'cp -a /opt/deps/node_modules /work/node_modules && ' if index == 0 else ''
                 command('run', '--name', agent, '--network', 'none',
+                    *RUNTIME_ENV,
                     '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
                     '--user', f'{os.getuid()}:{os.getgid()}', '--memory=4g', '--pids-limit=256',
                     '--tmpfs', '/tmp:rw,size=512m',

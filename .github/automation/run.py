@@ -14,6 +14,8 @@ import uuid
 
 CHECKS = ['lint', 'typecheck', 'format:check', 'test', 'build']
 IGNORED = {'.git', 'node_modules', 'dist', 'coverage'}
+RUNTIME_ENV = ['-e', 'XDG_DATA_HOME=/tmp/xdg/data', '-e', 'XDG_CONFIG_HOME=/tmp/xdg/config',
+               '-e', 'XDG_CACHE_HOME=/tmp/xdg/cache', '-e', 'XDG_STATE_HOME=/tmp/xdg/state']
 
 
 def allowed(path):
@@ -96,7 +98,7 @@ def main():
             tar.extractall(work, filter='data')
         before = snapshot(work)
         uid, gid = os.getuid(), os.getgid()
-        common = ['--cap-drop=ALL', '--security-opt=no-new-privileges',
+        common = [*RUNTIME_ENV, '--cap-drop=ALL', '--security-opt=no-new-privileges',
                   '--pids-limit=256', '--memory=4g', '--cpus=2',
                   '--read-only', '--user', f'{uid}:{gid}',
                   '--tmpfs', '/tmp:rw,nosuid,size=512m',
