@@ -76,8 +76,11 @@ https://github.com/shion-kamimura/latch の最新の docs/issue-design.md を参
 
 ### 実装と検証
 
+IssueからOpenCode / DeepSeekで実装・検証し、Draft PRを作成する手動ワークフローは [IssueからDraft PRを作成する](docs/issue-draft-pr.md) を参照してください。
+
 `src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。
 
 Issueテンプレートに目的・期待動作・スコープ・受け入れ条件を記載し、Issue単位のブランチで開発してください。AIエージェント向けのルールは [AGENTS.md](AGENTS.md) に定義しています。
 
 Pull Request作成・更新時とmainへのpush時に、Node.js 26とpnpmでLint、型チェック、フォーマット確認、全テスト、ビルドを実行します。PRテンプレートには実行した検証結果と未検証事項を記載してください。
+
