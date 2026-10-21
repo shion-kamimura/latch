@@ -4,6 +4,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
     && npm install --global pnpm@12.14.0 opencode-ai@1.19.3
 WORKDIR /opt/deps
 COPY package.json pnpm-lock.yaml .npmrc ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile && chmod -R a+rX /opt/deps
 WORKDIR /work
 USER node
