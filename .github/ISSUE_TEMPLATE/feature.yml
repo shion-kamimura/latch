@@ -1,0 +1,40 @@
+name: 機能開発
+description: AIエージェントが実装できる単位で目的と受け入れ条件を定義する
+title: '[Feature] '
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい課題
+      description: 現状の問題、利用者、必要な背景を記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: 期待する動作
+      description: 入力と出力、正常系・異常系の具体例を記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 実装スコープ
+      description: 対象範囲と対象外を明記してください。
+      value: |
+        対象:
+        -
+
+        対象外:
+        -
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: 受け入れ条件（Acceptance Criteria）
+      description: テストなどで確認できる条件をチェックリストで記載してください。
+      value: |
+        - [ ]
+    validations:
+      required: true
