@@ -1,13 +1,15 @@
 """Exercise pinned OpenCode against a local mock, with no API key or external network."""
 
 import json
+import io
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tarfile
 import uuid
 
-from run import agent_config
+from run import CHECKS, agent_config
 
 
 def main():
@@ -65,6 +67,23 @@ http.createServer((req, res) => {
                 print(result.stderr)
                 raise SystemExit('OpenCode mock smoke test failed')
             print('Pinned OpenCode completed an offline mock request successfully.')
+        command('rm', '-f', agent, stdout=subprocess.DEVNULL)
+        # Exercise the same copied dependency layout and offline checks used by
+        # the real orchestrator, on the trusted PR snapshot without credentials.
+        with tempfile.TemporaryDirectory() as work:
+            archive = subprocess.check_output(['git', 'archive', 'HEAD'])
+            with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+                tar.extractall(work, filter='data')
+            for index, check in enumerate(CHECKS):
+                setup = 'cp -a /opt/deps/node_modules /work/node_modules && ' if index == 0 else ''
+                command('run', '--name', agent, '--network', 'none',
+                    '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
+                    '--user', f'{os.getuid()}:{os.getgid()}', '--memory=4g', '--pids-limit=256',
+                    '--tmpfs', '/tmp:rw,size=512m',
+                    '--tmpfs', f'/home/node:rw,uid={os.getuid()},gid={os.getgid()},size=512m',
+                    '--mount', f'type=bind,src={work},dst=/work', 'latch-agent',
+                    'sh', '-c', setup + 'exec pnpm ' + check, timeout=180)
+                command('rm', '-f', agent, stdout=subprocess.DEVNULL)
     except subprocess.CalledProcessError as error:
         print(error.stdout or '')
         print(error.stderr or '')

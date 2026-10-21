@@ -1,6 +1,8 @@
 """Boundary tests; no live keys, Docker daemon, or GitHub writes required."""
 
 import json
+import hashlib
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -83,6 +85,35 @@ class BoundaryTests(unittest.TestCase):
             (Path(root) / 'src' / 'escape').symlink_to('/etc')
             with self.assertRaises(ValueError):
                 run.snapshot(Path(root))
+
+    def test_publisher_stops_without_writes_for_existing_pr_or_changed_main(self):
+        for existing in [True, False]:
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as root:
+                number, base = 7, 'a' * 40
+                branch = 'feat/automated-' + hashlib.sha256(b'issue-node').hexdigest()[:16]
+                request = Path(root) / 'issue.json'
+                request.write_text(json.dumps({'number': number, 'base': base, 'branch': branch}))
+                Path(root, 'proposal.json').write_text(json.dumps({
+                    'files': [{'path': 'src/new.ts', 'content': 'example'}],
+                    'checks': dict.fromkeys(run.CHECKS, 0),
+                }))
+                calls = []
+                def fake_api(method, path, data=None):
+                    calls.append((method, path, data))
+                    self.assertEqual(method, 'GET')
+                    if path == '/issues/7':
+                        return {'state': 'open', 'node_id': 'issue-node'}
+                    if path.startswith('/pulls?'):
+                        return [{'number': 8}] if existing else []
+                    return {'object': {'sha': 'b' * 40}}
+                with patch.dict(os.environ, {'REQUEST_PATH': str(request), 'OUTPUT_PATH': root,
+                                             'GITHUB_REPOSITORY': 'owner/repo'}), patch.object(publish, 'api', fake_api):
+                    if existing:
+                        publish.main()
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'main changed'):
+                            publish.main()
+                self.assertTrue(all(method == 'GET' for method, _, _ in calls))
 
 
 if __name__ == '__main__':
