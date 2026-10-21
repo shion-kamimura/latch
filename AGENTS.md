@@ -2,7 +2,9 @@
 
 - Issueを設計する場合は [Issue設計ガイド](docs/issue-design.md) を参照する。
 - GitHub Issueの目的・スコープ・受け入れ条件を確認し、遵守する。
-- 原則としてIssue単位で作業ブランチを作成する（例: `feat/123-help`）。Issue番号がない作業でも専用ブランチを使用する。
+- 原則としてIssue単位で作業ブランチを作成する。Issueがない作業でも専用ブランチを使用する。
+- ブランチ名は `<type>/<short-description>` とし、説明は英小文字のkebab-caseで簡潔に記述する（例: `feat/pr-verification`、`fix/cli-exit-code`、`docs/project-vision`）。Issue番号はブランチ名に含めず、関連IssueはPR本文で紐づける。
+- `<type>` は変更の目的に合わせ、`feat`（機能追加）、`fix`（不具合修正）、`docs`（文書）、`refactor`（動作を変えない構造整理）、`test`（テスト）、`ci`（CI）、`chore`（開発環境・保守）を使用する。
 - mainブランチへ直接コミットしない。変更はPull Requestでレビューを受ける。
 - 動作変更を伴う場合は、適切なUnit・Integration・CLI E2Eテストを追加または更新する。
 - 作業完了前に関連チェックを実行する。基盤変更時は `pnpm lint`、`pnpm typecheck`、`pnpm format:check`、`pnpm test`、`pnpm build` を実行する。
