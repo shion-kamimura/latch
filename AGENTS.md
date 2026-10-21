@@ -1,5 +1,6 @@
 # AIエージェント向け開発ルール
 
+- Issueを設計する場合は [Issue設計ガイド](docs/issue-design.md) を参照する。
 - GitHub Issueの目的・スコープ・受け入れ条件を確認し、遵守する。
 - 原則としてIssue単位で作業ブランチを作成する（例: `feat/123-help`）。Issue番号がない作業でも専用ブランチを使用する。
 - mainブランチへ直接コミットしない。変更はPull Requestでレビューを受ける。
