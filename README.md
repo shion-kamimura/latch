@@ -64,6 +64,18 @@ node dist/cli.mjs --help
 
 ## 開発フローとCI
 
+### AIとIssueを設計する
+
+参照資料、要件の整理方法、登録前の承認フローは [Issue設計ガイド](docs/issue-design.md) にまとめています。新しいチャットでは、相談内容とともに次のように依頼してください。
+
+```text
+https://github.com/shion-kamimura/latch の最新の docs/issue-design.md を参照し、
+「○○」のIssue設計を手伝ってください。不明点は質問し、まずIssue案を提示してください。
+参照できない資料は明示し、GitHubへのIssue登録は私の承認後に行ってください。
+```
+
+### 実装と検証
+
 `src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。
 
 Issueテンプレートに目的・期待動作・スコープ・受け入れ条件を記載し、Issue単位のブランチで開発してください。AIエージェント向けのルールは [AGENTS.md](AGENTS.md) に定義しています。
