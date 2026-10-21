@@ -1,0 +1,32 @@
+{
+  "name": "latch",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Evidence-based verification for AI-generated code",
+  "type": "module",
+  "bin": {
+    "latch": "dist/cli.mjs"
+  },
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --project unit --project integration && pnpm build && vitest run --project e2e",
+    "build": "tsdown",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "eslint": "^10.13.0",
+    "prettier": "^3.9.10",
+    "tsdown": "^0.23.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}
