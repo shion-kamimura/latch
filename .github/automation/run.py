@@ -17,7 +17,7 @@ import threading
 import time
 import uuid
 
-from gateway import MAX_BYTES, MAX_CONTEXT, MAX_OUTPUT, MAX_REQUESTS, MAX_RESERVED, cost_config
+from gateway import MAX_BYTES, MAX_CONTEXT, MAX_OUTPUT, MAX_REQUESTS, MAX_RESERVED, cost_config, model_config
 from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_request, validate_link, MAX_FILE_BYTES, maintenance_path
 
 AGENT_TIMEOUT = 3600
@@ -196,7 +196,7 @@ def report_gateway(gateway, output=None, outcome='failed', elapsed_ms=0, stop_re
                 continue
             if event.get('event') == 'api_budget':
                 record = safe_budget_event(event)
-                if record is not None and len(records) < 10000:
+                if record is not None and len(records) < 100000:
                     records.append(record)
                     print('stage=api_cost estimated_usd=' + record['estimated_usd'] +
                           ' held_usd=' + record['held_usd'] +
@@ -204,7 +204,7 @@ def report_gateway(gateway, output=None, outcome='failed', elapsed_ms=0, stop_re
                 continue
             if event.get('event') == 'api_usage':
                 record = safe_usage_event(event)
-                if record is not None and len(records) < 10000:
+                if record is not None and len(records) < 100000:
                     records.append(record)
                     print('stage=api_usage ' + ' '.join(f'{key}={value}' for key, value in record.items() if key != 'event'), flush=True)
                 continue
@@ -224,11 +224,11 @@ def report_gateway(gateway, output=None, outcome='failed', elapsed_ms=0, stop_re
             if isinstance(reason, str) and reason in {'none', 'unsupported_endpoint', 'invalid_request_size',
                     'invalid_payload', 'request_too_large', 'request_limit', 'reserved_limit', 'cost_limit'}:
                 numeric = ['request_bytes', 'reserved', 'reserved_limit', 'request_limit']
-                if all(type(event.get(key)) is int and 0 <= event[key] <= 1_000_000_000 for key in numeric):
+                if all(type(event.get(key)) is int and 0 <= event[key] <= 1_000_000_000_000 for key in numeric):
                     status_record.update({'reason': reason, **{key: event[key] for key in numeric}})
                     print('stage=api_budget reason=' + reason + ' ' +
                           ' '.join(f'{key}={event[key]}' for key in numeric), flush=True)
-            if len(records) < 10000:
+            if len(records) < 100000:
                 records.append(status_record)
             found = True
         if not found:
@@ -279,12 +279,17 @@ def safe_budget_event(event):
                     {'requests', 'cumulative_bytes', 'request_bytes', 'cost'} for value in warnings) or
                 type(event.get('accounting_exceeded')) is not bool or
                 type(event.get('unsettled_requests')) is not int or
-                not 0 <= event['unsettled_requests'] <= MAX_REQUESTS):
+                not 0 <= event['unsettled_requests'] <= 100000):
             return None
         return {'event': 'api_budget', **amounts,
                 'pricing': {key: str(value) for key, value in pricing.items()},
                 'warnings': sorted(set(warnings)), 'accounting_exceeded': event['accounting_exceeded'],
-                'unsettled_requests': event['unsettled_requests']}
+                'unsettled_requests': event['unsettled_requests'],
+                'count_basis': event.get('count_basis') if event.get('count_basis') in
+                    {'tokenizer', 'identical_request_usage', 'model_context_fallback'} else 'model_context_fallback',
+                'model_config': model_config(json.dumps(event.get('model_config', model_config()))),
+                'tokenizer_revision': event.get('tokenizer_revision') if isinstance(event.get('tokenizer_revision'), str)
+                    and re.fullmatch(r'[0-9a-f]{64}', event['tokenizer_revision']) else None}
     except (ValueError, TypeError, ArithmeticError):
         return None
 
@@ -343,12 +348,13 @@ def write_diagnostics(output, records, available, outcome, elapsed_ms, stop_reas
     for name in ['GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT']:
         value = os.environ.get(name, '')
         metadata[name.lower()] = int(value) if value.isascii() and value.isdecimal() and len(value) <= 20 else None
+    effective_model = summary['cost']['model_config'] if summary['cost'] else model_config()
     report = {'schema_version': 1, 'metadata': metadata, 'diagnostics_available': available, 'outcome': outcome,
               'elapsed_ms': elapsed_ms,
               'cost_scope': 'per_workflow_run_only_retries_and_monthly_spend_are_separate',
               'cost_basis': 'peak_rate_estimate_not_invoice_or_guaranteed_billing_cap', 'limits': {
-                  'requests': MAX_REQUESTS, 'request_bytes': MAX_BYTES, 'output_tokens': MAX_OUTPUT,
-                  'cumulative_request_bytes': MAX_RESERVED, 'context_tokens': MAX_CONTEXT,
+                  'requests': effective_model['requests'], 'request_bytes': MAX_BYTES, 'output_tokens': effective_model['output_tokens'],
+                  'cumulative_request_bytes_warning': MAX_RESERVED, 'context_tokens': effective_model['context_tokens'],
                   'agent_timeout_seconds': AGENT_TIMEOUT}, 'summary': summary, 'events': records}
     Path(output, 'diagnostics.json').write_text(json.dumps(report, indent=2) + '\n')
 
@@ -373,15 +379,16 @@ def failure_reason(error):
     return 'host_validation_failed'
 
 
-def agent_config(gateway):
+def agent_config(gateway, settings=None):
+    settings = model_config() if settings is None else settings
     return json.dumps({
         'model': 'deepseek/deepseek-flash', 'enabled_providers': ['deepseek'],
         'provider': {'deepseek': {
             'npm': '@ai-sdk/openai-compatible',
             'options': {'baseURL': 'http://' + gateway + ':8080/v1', 'apiKey': 'gateway-only'},
             'models': {'deepseek-flash': {'name': 'DeepSeek V4.1 Flash',
-                       'reasoning': False, 'attachment': False,
-                       'limit': {'context': MAX_CONTEXT, 'output': MAX_OUTPUT}}}}},
+                       'reasoning': settings['thinking'] == 'enabled', 'attachment': False,
+                       'limit': {'context': settings['context_tokens'], 'output': settings['output_tokens']}}}}},
         'permission': {'*': 'deny', 'read': 'allow', 'edit': 'allow',
                        'glob': 'allow', 'grep': 'allow', 'bash': 'allow'},
         'autoupdate': False, 'share': 'disabled',
@@ -530,7 +537,8 @@ def main():
                   '--tmpfs', '/tmp:rw,nosuid,size=512m',
                   '--tmpfs', f'/home/node:rw,nosuid,uid={uid},gid={gid},size=512m',
                   '--mount', f'type=bind,src={work},dst=/work', '-w', '/work']
-        config = agent_config(gateway)
+        settings = model_config(os.environ.get('LATCH_MODEL_CONFIG'))
+        config = agent_config(gateway, settings)
         outcome = 'failed'
         stop_reason = None
         agent_warnings = []
@@ -544,12 +552,19 @@ def main():
             execute(['docker', 'network', 'create', '--internal', network], stdout=subprocess.DEVNULL)
             # Pull the trusted gateway image before introducing secrets or generated code.
             execute(['docker', 'pull', 'python:3.12.12-slim-bookworm'], stdout=subprocess.DEVNULL)
+            tokenizer_mount = []
+            if os.environ.get('LATCH_TOKENIZER_DIRECTORY'):
+                tokenizer = Path(os.environ['LATCH_TOKENIZER_DIRECTORY']).resolve()
+                tokenizer_mount = ['--mount', f'type=bind,src={tokenizer},dst=/tokenizer,readonly',
+                                   '-e', 'LATCH_TOKENIZER_DIRECTORY=/tokenizer',
+                                   '-e', 'LATCH_TOKENIZER_SHA256=' + os.environ.get('LATCH_TOKENIZER_SHA256', '')]
             execute(['docker', 'create', '--name', gateway, '--network', 'bridge',
                      '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
-                     '--user', '65534:65534', '--memory=256m', '--cpus=1', '--pids-limit=32',
-                     '-e', 'DEEPSEEK_API_KEY', '-e', 'LATCH_COST_CONFIG=' + pricing, '--mount',
+                     '--user', '65534:65534', '--memory=1g', '--cpus=1', '--pids-limit=32',
+                     '-e', 'DEEPSEEK_API_KEY', '-e', 'LATCH_COST_CONFIG=' + pricing,
+                     '-e', 'LATCH_MODEL_CONFIG=' + json.dumps(settings), *tokenizer_mount, '--mount',
                      f'type=bind,src={control / "gateway.py"},dst=/gateway.py,readonly',
-                     'python:3.12.12-slim-bookworm', 'python', '-B', '/gateway.py'], stdout=subprocess.DEVNULL)
+                     'latch-gateway', 'python', '-B', '/gateway.py'], stdout=subprocess.DEVNULL)
             execute(['docker', 'network', 'connect', network, gateway])
             execute(['docker', 'start', gateway], stdout=subprocess.DEVNULL)
             for attempt in range(20):

@@ -24,8 +24,9 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             budget.reserve(gateway.MAX_BYTES + 1)
         with patch.object(gateway, 'MAX_RESERVED', 0):
-            with self.assertRaises(ValueError):
-                gateway.Budget().reserve(1)
+            budget = gateway.Budget()
+            budget.reserve(1)
+            self.assertIn('cumulative_bytes', budget.warnings)
 
     def test_api_pins_model_output_and_removes_client_controls(self):
         data = json.loads(gateway.prepare_request(json.dumps({
