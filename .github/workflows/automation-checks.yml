@@ -1,0 +1,35 @@
+name: Automation checks
+
+on:
+  pull_request:
+    paths:
+      - '.github/automation/**'
+      - '.github/workflows/issue-draft-pr.yml'
+      - '.github/workflows/automation-checks.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/automation/**'
+      - '.github/workflows/issue-draft-pr.yml'
+      - '.github/workflows/automation-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test API budget, publication paths, and secret isolation boundaries
+        run: python3 -B -m unittest discover -s .github/automation -p 'test_*.py' -v
+      - name: Build pinned agent tools without secrets
+        run: docker build -f .github/automation/Dockerfile -t latch-agent .
+      - name: Verify pinned tools
+        run: |
+          docker run --rm --network none --entrypoint sh latch-agent -c 'node --version && pnpm --version && opencode --version'
+      - name: Exercise OpenCode with a mock API on an internal network (no secrets)
+        run: python3 -B .github/automation/smoke.py

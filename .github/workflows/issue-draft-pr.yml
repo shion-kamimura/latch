@@ -1,0 +1,114 @@
+name: Issue to Draft PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Open Issue number to implement
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: issue-draft-pr-${{ inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      base: ${{ steps.issue.outputs.base }}
+    steps:
+      - uses: actions/github-script@v7
+        id: issue
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const crypto = require('node:crypto');
+            if (context.ref !== 'refs/heads/main') throw new Error('Run only from main');
+            if (!/^[1-9][0-9]{0,8}$/.test(process.env.ISSUE_NUMBER)) throw new Error('Invalid Issue number');
+            const repo = context.repo;
+            for (const username of new Set([context.actor, process.env.GITHUB_TRIGGERING_ACTOR])) {
+              const {data} = await github.rest.repos.getCollaboratorPermissionLevel({...repo, username});
+              if (!['admin', 'maintain', 'write'].includes(data.permission)) throw new Error('Write permission required');
+            }
+            const {data: issue} = await github.rest.issues.get({...repo, issue_number: Number(process.env.ISSUE_NUMBER)});
+            if (issue.pull_request || issue.state !== 'open') throw new Error('An open Issue is required');
+            const branch = 'feat/automated-' + crypto.createHash('sha256').update(issue.node_id).digest('hex').slice(0, 16);
+            const prs = await github.paginate(github.rest.pulls.list, {...repo, state: 'all', head: `${repo.owner}:${branch}`, per_page: 100});
+            if (prs.length) throw new Error(`PR already exists: ${prs[0].html_url}`);
+            const {data: ref} = await github.rest.git.getRef({...repo, ref: 'heads/main'});
+            fs.mkdirSync('request', {recursive: true});
+            fs.writeFileSync('request/issue.json', JSON.stringify({number: issue.number, title: issue.title, body: issue.body || '', branch, base: ref.object.sha}));
+            core.setOutput('base', ref.object.sha);
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue-request
+          path: request/issue.json
+          retention-days: 1
+
+  implement:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: issue-request
+          path: ${{ runner.temp }}/request
+      - name: Build pinned agent tools (no API key)
+        run: docker build -f .github/automation/Dockerfile -t latch-agent .
+      - name: Implement, repair, and independently verify in containers
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          REQUEST_PATH: ${{ runner.temp }}/request/issue.json
+          OUTPUT_PATH: ${{ runner.temp }}/proposal
+        run: python3 .github/automation/run.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue-proposal
+          path: ${{ runner.temp }}/proposal/proposal.json
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [prepare, implement]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: issue-request
+          path: ${{ runner.temp }}/request
+      - uses: actions/download-artifact@v4
+        with:
+          name: issue-proposal
+          path: ${{ runner.temp }}/proposal
+      - name: Validate data and create Draft PR without running generated code
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_PATH: ${{ runner.temp }}/request/issue.json
+          OUTPUT_PATH: ${{ runner.temp }}/proposal
+        run: python3 .github/automation/publish.py
