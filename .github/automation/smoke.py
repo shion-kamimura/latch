@@ -9,7 +9,7 @@ import tempfile
 import tarfile
 import uuid
 
-from run import CHECKS, RUNTIME_ENV, agent_config, agent_failure
+from run import CHECKS, RUNTIME_ENV, agent_config, agent_failure, read_agent_metrics
 
 
 def main():
@@ -41,10 +41,12 @@ http.createServer((req, res) => {
       type: 'function', function: {name: tool.name, arguments: JSON.stringify(tool.arguments)}}]} :
       {role: 'assistant', content: 'smoke-ok'};
     const choice = {index: 0, message, finish_reason: tool ? 'tool_calls' : 'stop'};
+    const usage = {prompt_tokens: isAgent && turn === 1 ? 30000 : 1, completion_tokens: 1,
+      total_tokens: isAgent && turn === 1 ? 30001 : 2};
     if (!data.stream) {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({id: 'mock', object: 'chat.completion', created: 0,
-        model: 'deepseek-flash', choices: [choice], usage: {prompt_tokens: 1, completion_tokens: 1, total_tokens: 2}}));
+        model: 'deepseek-flash', choices: [choice], usage}));
       return;
     }
     res.setHeader('Content-Type', 'text/event-stream');
@@ -52,7 +54,7 @@ http.createServer((req, res) => {
     if (first.tool_calls) first.tool_calls = first.tool_calls.map((call, index) => ({...call, index}));
     for (const [delta, finish] of [[first, null], [{}, choice.finish_reason]]) {
       res.write('data: ' + JSON.stringify({id: 'mock', object: 'chat.completion.chunk', created: 0,
-        model: 'deepseek-flash', choices: [{index: 0, delta, finish_reason: finish}]}) + '\\n\\n');
+        model: 'deepseek-flash', choices: [{index: 0, delta, finish_reason: finish}], ...(finish ? {usage} : {})}) + '\\n\\n');
     }
     res.end('data: [DONE]\\n\\n');
   });
@@ -71,18 +73,23 @@ http.createServer((req, res) => {
             Path(work, 'note.txt').write_text('before\n')
             command('run', '--rm', '--network', 'none', 'latch-agent',
                     'python3', '--version', stdout=subprocess.DEVNULL)
+            config = json.loads(agent_config(server))
+            config['provider']['deepseek']['models']['deepseek-flash']['limit']['context'] = 32768
             result = command('run', '--name', agent, '--network', name,
                 *RUNTIME_ENV,
+                '-e', 'NO_PROXY=' + server + ',localhost,127.0.0.1',
+                '-e', 'no_proxy=' + server + ',localhost,127.0.0.1',
                 '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
                 '--user', f'{os.getuid()}:{os.getgid()}', '--memory=4g', '--pids-limit=256',
                 '--tmpfs', '/tmp:rw,size=512m',
                 '--tmpfs', f'/home/node:rw,uid={os.getuid()},gid={os.getgid()},size=512m',
                 '--mount', f'type=bind,src={work},dst=/work',
-                '-e', 'OPENCODE_CONFIG_CONTENT=' + agent_config(server),
+                '--mount', f'type=bind,src={Path(__file__).resolve().parent / "agent_metrics.py"},dst=/control/agent_metrics.py,readonly',
+                '-e', 'OPENCODE_CONFIG_CONTENT=' + json.dumps(config),
                 '-e', 'OPENCODE_DISABLE_DEFAULT_PLUGINS=true',
                 '-e', 'OPENCODE_DISABLE_MODELS_FETCH=true',
                 '-e', 'OPENCODE_DISABLE_AUTOUPDATE=true',
-                'latch-agent', 'opencode', 'run', '--format', 'json',
+                'latch-agent', 'python3', '-B', '/control/agent_metrics.py', 'opencode', 'run', '--format', 'json',
                 '--model', 'deepseek/deepseek-flash', '--file', '/work/issue.json',
                 '--', 'Exercise bash, read, and edit, then reply smoke-ok.',
                 capture_output=True, text=True, timeout=120)
@@ -101,6 +108,12 @@ http.createServer((req, res) => {
                         if isinstance(state, dict) and state.get('status') in {'completed', 'error'}:
                             print('Mock tool=' + part['tool'] + ' status=' + state['status'], flush=True)
                 raise SystemExit('OpenCode mock tool execution failed')
+            log = Path(work, 'agent.log')
+            log.write_text(result.stdout)
+            metrics = read_agent_metrics(log)
+            if not metrics['compactions'] or metrics['pruned_tools'] is None:
+                raise SystemExit('Pinned OpenCode auto-compaction was not observed')
+            print('Pinned OpenCode auto-compaction observed; compactions=' + str(metrics['compactions']))
             print('Pinned OpenCode completed mock API calls and bash/read/edit successfully.')
         command('rm', '-f', agent, stdout=subprocess.DEVNULL)
         # Exercise the same copied dependency layout and offline checks used by
