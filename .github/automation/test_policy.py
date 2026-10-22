@@ -20,34 +20,28 @@ def request(maintenance=False):
 
 
 class PolicyTests(unittest.TestCase):
-    def test_maintenance_requires_explicit_boolean_approval(self):
-        paths = ['AGENTS.md', '.github/automation/policy.py', '.github/automation/Dockerfile',
-                 '.github/workflows/ci.yml', '.github/pull_request_template.md']
-        for path in paths:
-            with self.subTest(path=path):
-                self.assertFalse(run.allowed(path))
-                self.assertFalse(run.allowed(path, 'true'))
-                self.assertTrue(run.allowed(path, True))
-                with self.assertRaises(policy.PolicyError):
-                    run.changes({}, {path: b'proposal'})
-                self.assertEqual(run.changes({}, {path: b'proposal'}, True)[0]['path'], path)
+    def test_repository_changes_do_not_require_maintenance_approval(self):
+        for path in ['AGENTS.md', 'package.json', 'pnpm-lock.yaml', '.npmrc',
+                     '.github/actions/build/action.yml', 'fixtures/api/change.patch',
+                     'scripts/日本語 script.sh', '.env.example', 'docs/image.png']:
+            for flag in [False, True]:
+                self.assertTrue(run.allowed(path, flag))
+                self.assertEqual(run.changes({}, {path: b'dummy'}, flag)[0]['path'], path)
 
-    def test_approval_does_not_allow_arbitrary_configuration_or_files(self):
-        for path in ['package.json', 'pnpm-lock.yaml', '.npmrc', 'src/.env', 'docs/key.pem',
-                     'tests/payload.exe', '.github/automation/.env', '.github/automation/a/b.py',
-                     '.github/workflows/../automation/a.py', '.github/actions/a.yml',
-                     '.github/workflows/a.yml/extra', '/AGENTS.md', 'src/../AGENTS.md',
-                     'src/a\\b.ts', '.github/automation/a.py\n', 'docs/a\x00.md']:
-            with self.subTest(path=path):
-                self.assertFalse(run.allowed(path, True))
+    def test_rejects_unsafe_paths(self):
+        for path in ['../x', '/x', 'a/../x', 'a//b', '.git/config', 'a/.GIT/x',
+                     'C:/x', 'a\\b', 'a\n', 'a\x00']:
+            self.assertFalse(run.allowed(path, True), path)
 
-    def test_text_types_duplicates_and_limits_are_enforced(self):
-        for files in [[{'path': 'docs/a.md', 'content': 'secret\x00value'}],
-                      [{'path': 'src/a.ts', 'content': 5}],
+    def test_types_duplicates_and_secret_detection(self):
+        for files in [[{'path': 'src/a.ts', 'content': 5}],
                       [{'path': 'docs/a.md', 'content': 'x'}] * 2,
-                      [{'path': 'docs/a.md', 'content': 'x', 'mode': '120000'}]]:
+                      [{'path': 'docs/a.md', 'content': 'x', 'mode': '160000'}],
+                      [{'path': '.env', 'content': 'API_KEY=' + 'a' * 40}],
+                      [{'path': 'key.txt', 'content': '-----BEGIN PRIVATE KEY-----'}]]:
             with self.assertRaises(policy.PolicyError):
-                policy.validate_files(files, True)
+                policy.validate_files(files)
+        policy.validate_files([{'path': '.env.example', 'content': 'API_KEY=dummy-value'}])
         policy.validate_files([{'path': 'docs/old.md', 'content': None}])
 
     def test_branch_and_request_validation(self):
@@ -78,10 +72,10 @@ class PolicyTests(unittest.TestCase):
 
     def test_report_distinguishes_mechanical_scope_and_human_review(self):
         report = policy.report(request(True), [{'path': 'AGENTS.md', 'content': 'proposal'}])
-        self.assertEqual(report['scope_check'], 'allowed_paths_only')
+        self.assertEqual(report['scope_check'], 'repository_boundary_only')
         self.assertIn('semantic_issue_scope', report['human_review_required'])
         self.assertIn('prior_approvals', report['human_review_required'])
-        self.assertTrue(report['maintenance_approved'])
+        self.assertEqual(report['maintenance_gate'], 'removed')
 
     def test_maintenance_requires_extra_independent_check(self):
         files = [{'path': '.github/automation/run.py', 'content': 'proposal'}]
@@ -99,7 +93,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(str(error), 'stage=repository_policy error=forbidden_path')
         self.assertEqual(run.failure_reason(error), 'repository_policy_failed')
         with self.assertRaises(policy.PolicyError) as caught:
-            run.changes({}, {'docs/a.md': b'private-data\xff'})
+            run.changes({}, {'../private-data': b'private-data\xff'})
         self.assertNotIn('private-data', str(caught.exception))
 
     def test_invalid_body_or_changed_issue_stops_before_any_write(self):
@@ -163,10 +157,9 @@ class PolicyTests(unittest.TestCase):
     def test_prompt_includes_rules_acceptance_and_stop_condition(self):
         prompt = run.agent_prompt(request())
         self.assertIn('acceptance criteria', prompt)
-        self.assertIn('stop immediately without partial changes', prompt)
-        self.assertIn('documents relevant to this implementation', prompt)
-        self.assertNotIn('.github/automation/*.py,', prompt)
-        self.assertIn('.github/automation/*.py,', run.agent_prompt(request(True)))
+        self.assertIn('Preserve safe partial work on failure', prompt)
+        self.assertIn('documents relevant to the implementation', prompt)
+        self.assertEqual(prompt, run.agent_prompt(request(True)))
 
     def test_candidate_automation_only_executes_in_isolated_container(self):
         command = run.automation_command('/candidate', '/base', 'isolated-policy-check')

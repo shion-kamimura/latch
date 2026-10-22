@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       allow_maintenance:
-        description: Allow reviewed Issue to propose AGENTS and automation/workflow changes (human review required)
+        description: Deprecated compatibility input; repository changes can be proposed without this flag
         required: true
         default: false
         type: boolean

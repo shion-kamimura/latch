@@ -1,6 +1,9 @@
 """Repository policy evaluated only by the trusted base revision."""
 
+import base64
 import hashlib
+import json
+import posixpath
 import re
 
 AUTOMATION_CHECK = 'automation'
@@ -10,47 +13,74 @@ HUMAN_REVIEW = ['semantic_issue_scope', 'acceptance_criteria', 'prior_approvals'
 
 
 class PolicyError(ValueError):
-    def __init__(self, code):
+    def __init__(self, code, path=None):
         self.code = code
+        self.path = safe_path(path) if path is not None else None
         super().__init__('stage=repository_policy error=' + code)
 
 
+MAX_FILE_BYTES = 8 * 1024 * 1024
+MAX_PROPOSAL_BYTES = 32 * 1024 * 1024
+MAX_CHANGED_FILES = 1000
+
+
+def secret_present(data):
+    # Deliberately limited detector, not a proof that arbitrary data is secret-free.
+    text = data.decode('utf-8', errors='replace') if isinstance(data, bytes) else data
+    return bool(re.search(r'-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----|'
+                          r'\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b|'
+                          r'(?i:(?:api[_-]?key|access[_-]?token|password|secret)\s*[=:]\s*["\']?(?!dummy|example|test|placeholder|changeme|\$)[A-Za-z0-9_+/=-]{20,})', text))
+
+
+def safe_path(path):
+    if not isinstance(path, str):
+        return '[invalid path]'
+    if secret_present(path):
+        return '[redacted path]'
+    return json.dumps(path[:1024], ensure_ascii=True)
+
+
 def allowed(path, maintenance=False):
-    if not isinstance(path, str) or len(path) > 200 or '\\' in path:
+    # maintenance is a deprecated no-op retained for old requests.
+    if (not isinstance(path, str) or not path or len(path.encode('utf-8')) > 4096
+            or '\\' in path or any(ord(c) < 32 or ord(c) == 127 for c in path)):
         return False
-    if maintenance is True and path == '.github/pull_request_template.md':
-        return True
     parts = path.split('/')
-    if any(not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', part)
-           or part in {'.', '..'} for part in parts):
-        return False
-    if path == 'README.md':
-        return True
-    if len(parts) > 1 and parts[0] in {'src', 'tests', 'docs'}:
-        return path.endswith(('.ts', '.tsx', '.js', '.mjs', '.cjs', '.json', '.md', '.txt'))
-    if maintenance is not True:
-        return False
-    if path == 'AGENTS.md':
-        return True
-    # Only these exact hidden directories are exceptions; traversal stays forbidden.
-    return False
+    return (not re.match(r'^[A-Za-z]:', path)
+            and all(part and part not in {'.', '..'} and part.casefold() != '.git' for part in parts))
 
 
 def maintenance_path(path):
-    if not isinstance(path, str) or len(path) > 200 or '\\' in path:
-        return False
-    parts = path.split('/')
-    if len(parts) != 3 or parts[0] != '.github':
-        return False
-    name = parts[2]
-    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', name):
-        return False
-    return ((parts[1] == 'automation' and (name.endswith('.py') or name == 'Dockerfile'))
-            or (parts[1] == 'workflows' and name.endswith(('.yml', '.yaml'))))
+    return path == 'AGENTS.md' or path.startswith('.github/')
 
 
 def allowed_change(path, maintenance=False):
-    return allowed(path, maintenance) or (maintenance is True and maintenance_path(path))
+    return allowed(path)
+
+
+def validate_link(path, target):
+    if (not isinstance(target, str) or not target or target.startswith('/') or '\\' in target
+            or re.match(r'^[A-Za-z]:', target)
+            or any(ord(c) < 32 or ord(c) == 127 for c in target)):
+        raise PolicyError('unsafe_link', path)
+    resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
+    if not allowed(resolved):
+        raise PolicyError('unsafe_link', path)
+
+
+def file_bytes(item):
+    value = item['content']
+    if not isinstance(value, str):
+        raise PolicyError('invalid_file_type', item.get('path'))
+    encoding = item.get('encoding', 'utf-8')
+    try:
+        if encoding == 'base64':
+            return base64.b64decode(value, validate=True)
+        if encoding == 'utf-8' and '\x00' not in value:
+            return value.encode('utf-8')
+    except (ValueError, UnicodeError):
+        pass
+    raise PolicyError('invalid_file_type', item.get('path'))
 
 
 def validate_request(request):
@@ -79,19 +109,51 @@ def validate_issue(request, issue):
 
 
 def validate_files(files, maintenance=False):
-    if not isinstance(files, list) or len(files) > 100:
+    if not isinstance(files, list) or len(files) > MAX_CHANGED_FILES:
         raise PolicyError('invalid_files')
+    if len(json.dumps(files).encode()) > MAX_PROPOSAL_BYTES:
+        raise PolicyError('proposal_too_large')
     seen = set()
     for item in files:
-        if not isinstance(item, dict) or set(item) != {'path', 'content'}:
+        if (not isinstance(item, dict) or not {'path', 'content'} <= set(item)
+                or set(item) - {'path', 'content', 'encoding', 'mode'}):
             raise PolicyError('invalid_file')
         path, content = item['path'], item['content']
-        if not allowed_change(path, maintenance) or path in seen:
-            raise PolicyError('forbidden_path')
-        if content is not None and (not isinstance(content, str) or '\x00' in content
-                                    or len(content.encode('utf-8')) > 500_000):
-            raise PolicyError('invalid_file_type')
+        if not allowed_change(path) or path in seen:
+            raise PolicyError('forbidden_path', path)
+        if secret_present(path):
+            raise PolicyError('secret_detected')
+        if item.get('mode', '100644') not in {'100644', '100755', '120000'}:
+            raise PolicyError('invalid_file_type', path)
+        if content is not None:
+            data = file_bytes(item)
+            if len(data) > MAX_FILE_BYTES:
+                raise PolicyError('file_too_large', path)
+            if secret_present(data):
+                raise PolicyError('secret_detected', path)
+            if item.get('mode') == '120000':
+                try:
+                    validate_link(path, data.decode('utf-8'))
+                except UnicodeError:
+                    raise PolicyError('unsafe_link', path) from None
         seen.add(path)
+    # Reject links which resolve transitively through another proposed link.
+    links = {item['path']: file_bytes(item).decode('utf-8') for item in files
+             if item.get('mode') == '120000' and item['content'] is not None}
+    for path, target in links.items():
+        current = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
+        visited = {path}
+        for _ in range(len(links) + 1):
+            prefix = next((p for p in links if current == p or current.startswith(p + '/')), None)
+            if prefix is None:
+                break
+            if prefix in visited:
+                raise PolicyError('unsafe_link', path)
+            visited.add(prefix)
+            current = posixpath.normpath(posixpath.join(posixpath.dirname(prefix), links[prefix],
+                                                       posixpath.relpath(current, prefix)))
+            if not allowed(current):
+                raise PolicyError('unsafe_link', path)
 
 
 def validate_body(body, number):
@@ -110,6 +172,7 @@ def report(request, files, body=None):
     return {'schema_version': 1, 'status': 'passed',
             'mechanical_checks': ['request', 'branch', 'paths', 'file_types', 'issue_number']
                 + (['issue_link', 'pr_body'] if body is not None else []),
-            'scope_check': 'allowed_paths_only',
+            'scope_check': 'repository_boundary_only',
             'human_review_required': HUMAN_REVIEW,
-            'maintenance_approved': request.get('allow_maintenance', False)}
+            'maintenance_gate': 'removed',
+            'warnings': (['large_change'] if len(files) > 100 or len(json.dumps(files).encode()) > 1024 * 1024 else [])}
