@@ -78,6 +78,8 @@ https://github.com/shion-kamimura/latch の最新の docs/issue-design.md を参
 
 IssueからOpenCode / DeepSeekで実装・検証し、Draft PRを作成する手動ワークフローは [IssueからDraft PRを作成する](docs/issue-draft-pr.md) を参照してください。
 
+PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。これは利用仕様であり、検証機能はまだ実装していません。
+
 `src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。
 
 Issueテンプレートに目的・期待動作・スコープ・受け入れ条件を記載し、Issue単位のブランチで開発してください。AIエージェント向けのルールは [AGENTS.md](AGENTS.md) に定義しています。
