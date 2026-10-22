@@ -33,7 +33,10 @@ http.createServer((req, res) => {
       {name: 'read', arguments: {filePath: '/work/note.txt'}},
       {name: 'edit', arguments: {filePath: '/work/note.txt', oldString: 'before', newString: 'after'}},
     ];
-    const tool = calls[turn++];
+    // OpenCode also makes title/summary requests without tools. Those must not
+    // consume a step in the agent's deterministic tool conversation.
+    const isAgent = Array.isArray(data.tools) && data.tools.some(item => item.function?.name === 'read');
+    const tool = isAgent ? calls[turn++] : null;
     const message = tool ? {role: 'assistant', content: null, tool_calls: [{id: 'call-' + turn,
       type: 'function', function: {name: tool.name, arguments: JSON.stringify(tool.arguments)}}]} :
       {role: 'assistant', content: 'smoke-ok'};
@@ -87,6 +90,14 @@ http.createServer((req, res) => {
             if (not Path(work, 'command.txt').is_file() or
                     Path(work, 'command.txt').read_text() != 'smoke-command' or
                     Path(work, 'note.txt').read_text() != 'after\n'):
+                print('Mock tool files: command_created=' + str(Path(work, 'command.txt').is_file()) +
+                      ' edit_completed=' + str(Path(work, 'note.txt').read_text() == 'after\n'), flush=True)
+                for event in events:
+                    part = event.get('part', {})
+                    if isinstance(part, dict) and part.get('tool') in {'bash', 'read', 'edit'}:
+                        state = part.get('state', {})
+                        if isinstance(state, dict) and state.get('status') in {'completed', 'error'}:
+                            print('Mock tool=' + part['tool'] + ' status=' + state['status'], flush=True)
                 raise SystemExit('OpenCode mock tool execution failed')
             print('Pinned OpenCode completed mock API calls and bash/read/edit successfully.')
         command('rm', '-f', agent, stdout=subprocess.DEVNULL)
