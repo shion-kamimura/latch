@@ -24,9 +24,9 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、指定したI
 
 - `prepare`: Issue取得と実行者権限の確認だけを行います。Issueタイトル・本文をJSONファイルとして渡し、シェルやワークフローのソースに展開しません。
 - `implement`: GitHub権限はcontentsのreadのみ。checkoutの資格情報を保存せず、追跡ファイルだけを別ディレクトリへexportします。AIコンテナにはホストの`.git`、GitHubトークン、APIキー、Docker socket、Actions環境変数を渡しません。
-- AIと生成コードは、capabilityを落とした非root・read-only root filesystemのコンテナで実行します。メモリ4 GiB、CPU 2、プロセス256、AI実行20分、各独立チェック3分を上限とします。ジョブ全体は35分です。
+- AIと生成コードは、capabilityを落とした非root・read-only root filesystemのコンテナで実行します。メモリ4 GiB、CPU 2、プロセス256、AI実行30分、各独立チェック3分を上限とします。ジョブ全体は60分です。
 - AIコンテナはDockerのinternal networkだけに接続します。外部通信できる別コンテナの中継が、固定したDeepSeekのchat completions APIにだけ接続します。キーはこの中継の環境変数にのみ渡します。中継にはワークスペースをmountせず、任意URL・リダイレクト・別モデルを許可しません。
-- APIは最大24リクエスト、1リクエスト120,000 bytes、最大出力4,096 tokens、累積2,000,000の予約単位（送信JSON bytesと最大出力tokensの和）で制限します。失敗した呼び出しも消費します。これはドル建て課金の厳密な上限ではありません。DeepSeek側でも残高・利用状況を管理してください。
+- APIは最大100リクエスト、1リクエスト512 KiB（524,288 bytes）、最大出力8,192 tokens、累積送信JSON 32 MiB（33,554,432 bytes）で制限します。失敗した送信も回数と送信量に含めます。料金による停止は行いません。これらは開発を進めながら実測で調整する初期値で、完了や金額の上限を保証しません。DeepSeek側でも残高・利用状況を管理してください。
 - 通常のAIプロンプト・権限設定だけを安全境界にしません。ただしDockerや信頼したツールの脆弱性まで防ぐ保証はありません。AIに提供する追跡済みソースとIssueはDeepSeekへ送信され得ます。
 - 自動変更は`src/`、`tests/`、`docs/`、`README.md`のUTF-8通常ファイルだけです。最大100ファイル・提案JSON 500 KB。隠しファイル、symlink、path traversal、ワークフロー、`AGENTS.md`、依存関係、設定ファイルの変更は拒否します。これらが必要なIssueは人間が通常の開発フローで対応してください。
 - AIには実装・テスト・自己修正を指示します。その終了後、依存関係を初期化し、ネットワークのない別コンテナで`pnpm lint` → `pnpm typecheck` → `pnpm format:check` → `pnpm test` → `pnpm build`を実行します。`pnpm test`内部のUnit・Integration → Build → CLI E2Eの順序は維持します。独立検証失敗時はPRを作らず停止します。
@@ -38,7 +38,7 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、指定したI
 - Secret未設定、Docker build失敗、OpenCode非ゼロ終了、APIのHTTPステータス、API利用上限、タイムアウトは`implement`を確認します。401ならキー、429なら利用制限を確認します。中継はエラー本文やAuthorizationヘッダーを出力しません。
 - 生のAI transcriptは公開・artifact保存しません。モデルエラーは一般化した状態で報告するため、モデル内部の詳細は未取得です。独立チェックの出力はActionsコマンド解釈を無効にして表示します。
 - GitHub APIで403になった場合はPR作成設定と組織ポリシーを確認します。途中でmainが更新された場合は最新mainから再実行します。
-- Issueと提案artifactは保持1日です。失敗時は提案をuploadしません。APIキーを含むartifactや.envを作成しません。
+- Issueと提案artifactは保持1日です。失敗時は提案をuploadしません。数値と固定ラベルだけの診断artifact `issue-diagnostics` は成功・失敗時とも14日保持します。APIキーを含むartifactや.envを作成しません。
 - `GITHUB_TOKEN`によるPR作成は通常の`pull_request` CIを自動起動しません。このワークフローの独立チェックを確認し、必要なら人間がブランチを更新して通常CIも実行してください。CI起動用PATで権限を増やす実装にはしていません。
 
 ## バージョンと検証
@@ -76,7 +76,7 @@ python3 -B -m unittest discover -s .github/automation -p 'test_*.py' -v
 | `stage=opencode_run error=configuration_error`       | OpenCode 設定の読み込み失敗                                   |
 | `stage=opencode_run error=model_configuration_error` | プロバイダー・モデル設定                                      |
 | `stage=opencode_run error=api_error`                 | OpenCode が報告した API エラー。中継側の状態も確認            |
-| `stage=opencode_run error=timeout`                   | AI 実行の20分制限                                             |
+| `stage=opencode_run error=timeout`                   | AI 実行の30分制限                                             |
 | `stage=api outcome=http_error ... http_status=401`   | DeepSeek が返した HTTP ステータス。401 は認証、429 は利用制限 |
 | `stage=api outcome=timeout` / `transport_error`      | 中継から DeepSeek への接続・応答待ちの失敗                    |
 | `stage=api outcome=rejected`                         | 未対応エンドポイント、不正な入力、既存の利用量上限            |
@@ -94,20 +94,46 @@ Issue #10 の起動引数を固定バージョンで再現すると、配列引�
 | ---------------------- | ------------------------------------------------- |
 | `invalid_request_size` | Content-Length が不正、または受信サイズ上限を超過 |
 | `request_too_large`    | DeepSeek に送る JSON が1リクエストの上限を超過    |
-| `request_limit`        | 最大24リクエストを消費済み                        |
-| `reserved_limit`       | JSON bytes + 出力予約の累積2,000,000単位を超過    |
+| `request_limit`        | 最大100リクエストを消費済み                       |
+| `reserved_limit`       | 送信 JSON の累計32 MiBを超過                      |
 | `invalid_payload`      | JSON、モデル、必須フィールドなどが不正            |
 | `unsupported_endpoint` | 許可していないエンドポイント                      |
 | `none`                 | 拒否以外の通常の状態                              |
 
-`request_bytes` は送信しようとした JSON の UTF-8 bytes、`reserved` は既に予約した累積単位です。拒否された送信は外部 API に到達せず、予約残高を変更しません。DeepSeek に送信を試みた呼び出しは、HTTP エラーでも予約を消費します。
+`request_bytes` は送信しようとした JSON の UTF-8 bytes、`reserved` は送信 JSON の累積 bytes です（従来のフィールド名を維持しています）。拒否された送信は外部 API に到達せず、予約残高を変更しません。DeepSeek に送信を試みた呼び出しは、HTTP エラーでも予約を消費します。
 
-日本語を Unicode エスケープで膨らませないよう、送信 JSON は意味を保ったまま UTF-8・空白なしで構築します。予約計算式は `送信 JSON bytes + 最大出力予約` のままです。上限到達だけで自動的に予算を増やしたり、無制限に再試行したりしません。
+日本語を Unicode エスケープで膨らませないよう、送信 JSON は意味を保ったまま UTF-8・空白なしで構築します。バイト数とトークン数を加算する旧方式をやめ、通信量は JSON bytes、モデル利用量は API の実トークン数として分けて記録します。上限到達だけで自動的に予算を増やしたり、無制限に再試行したりしません。
 
 2026-10-22 の実行 `39721914337` は起動成功後、DeepSeek への10回の送信で HTTP 200 を受け取り、11回目が中継で拒否されました。当時の `rejected` ログには内訳がなく、累積予算・サイズ・入力不正のどれかまでは確定できません。また、コマンド実行権限の設定名が `shell` になっていたため、OpenCode のツール名 `bash` に修正しました。モック試験は固定のコマンド実行・読取・編集を要求し、実際のファイルの変更まで確認します。単なる返答や HTTP 200 だけを実装成功と扱いません。
 
-### 累積予約上限の引き上げ
+### 過去の累積予約上限の引き上げ
 
-実 API の実行で、累積469,443単位を消費した後、11回目の要求61,006 bytesと出力予約4,096単位を加えた534,545単位が旧上限500,000単位を超え、`reserved_limit` で停止することを確認しました。利用者の承認に基づき、累積上限を2,000,000単位へ引き上げます。1回120,000 bytes、最大24リクエスト、最大出力4,096 tokens、AI実行20分の上限は維持します。
+実 API の実行で、累積469,443単位を消費した後、11回目の要求61,006 bytesと出力予約4,096単位を加えた534,545単位が旧上限500,000単位を超え、`reserved_limit` で停止することを確認しました。当時は利用者の承認に基づき累積上限を2,000,000単位へ引き上げ、1回120,000 bytes、最大24リクエスト、最大出力4,096 tokens、AI実行20分としていました。現在は次節の開発用初期制限を使用します。
 
 予約単位は金額や実際のトークン数ではありません。上限の引き上げは API 利用量・課金が増える余地を広げます。旧実行の11回目は新上限に収まりますが、Issue の実装完了や新上限内での完了を保証するものではありません。
+
+### 開発を進めながら調整する初期制限と記録
+
+| 項目                       | 初期値                              |
+| -------------------------- | ----------------------------------- |
+| API 送信試行               | 100回（タイトル生成・要約等も含む） |
+| 1要求のJSON                | 512 KiB                             |
+| 累積送信JSON               | 32 MiB                              |
+| 1回の最大出力              | 8,192 tokens                        |
+| OpenCodeのコンテキスト設定 | 131,072 tokens                      |
+| AI実行                     | 30分                                |
+| 独立チェック               | 各3分                               |
+| implementジョブ全体        | 60分                                |
+
+これらは小規模な開発を試すための暫定値です。回数・通信量・時間を無制限にはせず、料金からの厳密な停止制御や固定の累計トークン上限は追加しません。モデル、Docker隔離、GitHub権限、変更可能パス、独立検証とDraft PRのみの公開方針は維持します。
+
+`issue-diagnostics` の `diagnostics.json` には実行時の制限、結果、処理時間、API試行数、実入力・出力トークン、入力キャッシュヒット・ミストークン、出力打ち切り回数、停止理由を記録します。各応答の `completed_at_unix` はUTCのUnix時刻、`elapsed_ms` は当該API応答までの時間です。レポート最上位の `elapsed_ms` は中継準備から独立チェックまでを含む実行時間です。本文・認証情報・例外メッセージは保存しません。料金計算は実施せず、公式単価と数値の照合に利用できます。
+
+- `summary` のトークン合計は取得できた応答の小計です。`usage_unknown` が0より大きい場合、実行全体の利用量ではありません。
+- タイムアウトや欠落・不正な usage は消費ゼロとみなさず不明として残します。キャッシュ内訳がない場合も不明とし、キャッシュなしと断定しません。
+- `output_truncations` は `finish_reason=length` の回数です。モデルの進捗や成果物の正しさを保証する数値ではありません。
+- `summary.stop_reason` は中継の上限理由を優先し、ほかにAI・検証タイムアウト、検証失敗などの固定理由を記録します。失敗した実行から未検証の提案を公開しません。
+- 初期設定不備やrunnerの強制停止などでは診断を作成できない場合があります。中継ログが取得不能な場合は `diagnostics_available=false` として記録します。
+- 記録は1回のワークフロー実行単位です。同一Issueの再実行は別記録・別上限となるため、1 PRに至る費用を見る場合は失敗した試行も集計します。GitHubの実行番号・attemptとartifactを対応づけて比較してください。
+
+数件から十数件の実行後、完了率、停止理由、入力・出力・キャッシュ量、出力打ち切り、所要時間を比較して調整します。上限に余裕があるのに進まない場合は、プロンプトやツールの失敗を別途調べます。設定は自動的には変更しません。

@@ -58,7 +58,7 @@ jobs:
   implement:
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -80,6 +80,14 @@ jobs:
           REQUEST_PATH: ${{ runner.temp }}/request/issue.json
           OUTPUT_PATH: ${{ runner.temp }}/proposal
         run: python3 .github/automation/run.py
+      - name: Save safe execution measurements even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-diagnostics
+          path: ${{ runner.temp }}/proposal/diagnostics.json
+          if-no-files-found: warn
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
           name: issue-proposal

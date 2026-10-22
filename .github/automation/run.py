@@ -12,6 +12,10 @@ import tempfile
 import time
 import uuid
 
+from gateway import MAX_BYTES, MAX_CONTEXT, MAX_OUTPUT, MAX_REQUESTS, MAX_RESERVED
+
+AGENT_TIMEOUT = 1800
+
 CHECKS = ['lint', 'typecheck', 'format:check', 'test', 'build']
 IGNORED = {'.git', 'node_modules', 'dist', 'coverage'}
 RUNTIME_ENV = ['-e', 'XDG_DATA_HOME=/tmp/xdg/data', '-e', 'XDG_CONFIG_HOME=/tmp/xdg/config',
@@ -100,9 +104,9 @@ def run_agent(command, log_path):
     # Raw output stays in the temporary directory and is never uploaded.
     with open(log_path, 'wb') as log:
         try:
-            result = subprocess.run(command, stdout=log, stderr=log, timeout=1200)
+            result = subprocess.run(command, stdout=log, stderr=log, timeout=AGENT_TIMEOUT)
         except subprocess.TimeoutExpired:
-            raise ValueError('stage=opencode_run error=timeout limit_seconds=1200') from None
+            raise ValueError(f'stage=opencode_run error=timeout limit_seconds={AGENT_TIMEOUT}') from None
     kind = agent_failure(log_path, result.returncode)
     if kind:
         raise ValueError(f'stage=opencode_run error={kind} exit_code={result.returncode}')
@@ -120,8 +124,10 @@ def verify_startup(command):
     print('stage=opencode_startup status=ready', flush=True)
 
 
-def report_gateway(gateway):
+def report_gateway(gateway, output=None, outcome='failed', elapsed_ms=0, stop_reason=None, issue_number=None):
     """Rebuild the gateway's fixed-schema counters instead of relaying Docker logs."""
+    records = []
+    available = False
     try:
         result = subprocess.run(['docker', 'logs', gateway], capture_output=True,
                                 text=True, timeout=10)
@@ -133,29 +139,115 @@ def report_gateway(gateway):
                 event = json.loads(line)
             except ValueError:
                 continue
-            if not isinstance(event, dict) or event.get('event') != 'api_status':
+            if not isinstance(event, dict):
+                continue
+            if event.get('event') == 'api_usage':
+                record = safe_usage_event(event)
+                if record is not None and len(records) < 1000:
+                    records.append(record)
+                    print('stage=api_usage ' + ' '.join(f'{key}={value}' for key, value in record.items() if key != 'event'), flush=True)
+                continue
+            if event.get('event') != 'api_status':
                 continue
             fields = ['received', 'attempted', 'http_status']
             if not all(type(event.get(key)) is int and 0 <= event[key] <= 1_000_000 for key in fields):
                 continue
-            outcome = event.get('outcome')
-            if not isinstance(outcome, str) or outcome not in {'ready', 'attempt', 'success', 'http_error', 'timeout',
+            api_outcome = event.get('outcome')
+            if not isinstance(api_outcome, str) or api_outcome not in {'ready', 'attempt', 'success', 'http_error', 'timeout',
                                'transport_error', 'invalid_response', 'rejected'}:
                 continue
-            print('stage=api outcome=' + outcome + ' ' +
+            print('stage=api outcome=' + api_outcome + ' ' +
                   ' '.join(f'{key}={event[key]}' for key in fields), flush=True)
+            status_record = {'event': 'api_status', 'outcome': api_outcome, **{key: event[key] for key in fields}}
             reason = event.get('reason')
             if isinstance(reason, str) and reason in {'none', 'unsupported_endpoint', 'invalid_request_size',
                     'invalid_payload', 'request_too_large', 'request_limit', 'reserved_limit'}:
                 numeric = ['request_bytes', 'reserved', 'reserved_limit', 'request_limit']
-                if all(type(event.get(key)) is int and 0 <= event[key] <= 2_000_000 for key in numeric):
+                if all(type(event.get(key)) is int and 0 <= event[key] <= 100_000_000 for key in numeric):
+                    status_record.update({'reason': reason, **{key: event[key] for key in numeric}})
                     print('stage=api_budget reason=' + reason + ' ' +
                           ' '.join(f'{key}={event[key]}' for key in numeric), flush=True)
+            if len(records) < 1000:
+                records.append(status_record)
             found = True
         if not found:
             raise ValueError
+        available = True
     except (OSError, ValueError, subprocess.TimeoutExpired):
         print('stage=api error=diagnostics_unavailable', flush=True)
+    if output is not None:
+        try:
+            write_diagnostics(output, records, available, outcome, elapsed_ms, stop_reason, issue_number)
+        except OSError:
+            print('stage=diagnostics error=write_failed', flush=True)
+
+
+def safe_usage_event(event):
+    fields = ['prompt_tokens', 'completion_tokens', 'cache_hit_tokens', 'cache_miss_tokens']
+    if not all(event.get(key) is None or
+               (type(event[key]) is int and 0 <= event[key] <= 10_000_000) for key in fields):
+        return None
+    finish = event.get('finish_reason')
+    elapsed = event.get('elapsed_ms')
+    completed = event.get('completed_at_unix')
+    if (not isinstance(finish, str) or finish not in {'stop', 'length', 'tool_calls', 'content_filter',
+            'insufficient_system_resource', 'aborted', 'unknown'} or
+            type(elapsed) is not int or not 0 <= elapsed <= 3_600_000 or
+            type(completed) is not int or not 0 <= completed <= 4_102_444_800):
+        return None
+    return {'event': 'api_usage', **{key: event.get(key) for key in fields},
+            'finish_reason': finish, 'elapsed_ms': elapsed, 'completed_at_unix': completed}
+
+
+def write_diagnostics(output, records, available, outcome, elapsed_ms, stop_reason, issue_number):
+    statuses = [record for record in records if record['event'] == 'api_status']
+    usage = [record for record in records if record['event'] == 'api_usage']
+    attempts = max((record['attempted'] for record in statuses), default=0)
+    rejections = [record['reason'] for record in statuses if record.get('outcome') == 'rejected'
+                  and record.get('reason') not in {None, 'none'}]
+    summary = {
+        'attempted': attempts,
+        'usage_reported': len(usage),
+        'usage_unknown': max(0, attempts - sum(record['prompt_tokens'] is not None and
+                              record['completion_tokens'] is not None for record in usage)),
+        'cache_usage_unknown': max(0, attempts - sum(record['cache_hit_tokens'] is not None and
+                              record['cache_miss_tokens'] is not None for record in usage)),
+        'output_truncations': sum(record['finish_reason'] == 'length' for record in usage),
+        'stop_reason': rejections[-1] if rejections else (stop_reason or outcome),
+    }
+    for key in ['prompt_tokens', 'completion_tokens', 'cache_hit_tokens', 'cache_miss_tokens']:
+        values = [record[key] for record in usage if record[key] is not None]
+        summary[key] = sum(values) if values else None
+    if not available and not statuses:
+        for key in ['attempted', 'usage_unknown', 'cache_usage_unknown']:
+            summary[key] = None
+    metadata = {'issue_number': issue_number if type(issue_number) is int and 0 < issue_number < 1_000_000_000 else None}
+    for name in ['GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT']:
+        value = os.environ.get(name, '')
+        metadata[name.lower()] = int(value) if value.isascii() and value.isdecimal() and len(value) <= 20 else None
+    report = {'schema_version': 1, 'metadata': metadata, 'diagnostics_available': available, 'outcome': outcome,
+              'elapsed_ms': elapsed_ms, 'limits': {
+                  'requests': MAX_REQUESTS, 'request_bytes': MAX_BYTES, 'output_tokens': MAX_OUTPUT,
+                  'cumulative_request_bytes': MAX_RESERVED, 'context_tokens': MAX_CONTEXT,
+                  'agent_timeout_seconds': AGENT_TIMEOUT}, 'summary': summary, 'events': records}
+    Path(output, 'diagnostics.json').write_text(json.dumps(report, indent=2) + '\n')
+
+
+def failure_reason(error):
+    if isinstance(error, subprocess.TimeoutExpired):
+        return 'validation_timeout'
+    if isinstance(error, subprocess.CalledProcessError):
+        return 'container_command_failed'
+    if isinstance(error, OSError):
+        return 'host_io_error'
+    message = str(error)
+    match = re.match(r'stage=[a-z_]+ error=([a-z_]+)', message)
+    if match and match[1] in {'timeout', 'api_error', 'startup_error', 'abnormal_exit', 'agent_error',
+            'configuration_error', 'model_configuration_error', 'provider_initialization_error'}:
+        return match[1]
+    if message.startswith('Independent check failed:'):
+        return 'validation_failed'
+    return 'host_validation_failed'
 
 
 def agent_config(gateway):
@@ -166,7 +258,7 @@ def agent_config(gateway):
             'options': {'baseURL': 'http://' + gateway + ':8080/v1', 'apiKey': 'gateway-only'},
             'models': {'deepseek-flash': {'name': 'DeepSeek V4.1 Flash',
                        'reasoning': False, 'attachment': False,
-                       'limit': {'context': 32768, 'output': 4096}}}}},
+                       'limit': {'context': MAX_CONTEXT, 'output': MAX_OUTPUT}}}}},
         'permission': {'*': 'deny', 'read': 'allow', 'edit': 'allow',
                        'glob': 'allow', 'grep': 'allow', 'bash': 'allow'},
         'autoupdate': False, 'share': 'disabled',
@@ -200,6 +292,9 @@ def main():
                   '--tmpfs', f'/home/node:rw,nosuid,uid={uid},gid={gid},size=512m',
                   '--mount', f'type=bind,src={work},dst=/work', '-w', '/work']
         config = agent_config(gateway)
+        outcome = 'failed'
+        stop_reason = None
+        started = time.monotonic()
         try:
             # Same user, read-only filesystem and tmpfs as the real agent; no API/network.
             preflight = name + '-preflight'
@@ -249,6 +344,7 @@ def main():
             generated = snapshot(work)
             files = changes(before, generated)
             if not files:
+                outcome = 'no_changes'
                 print('No source changes; no PR will be created.')
                 (output / 'proposal.json').write_text(json.dumps({'files': [], 'checks': {}}))
                 return
@@ -280,9 +376,13 @@ def main():
             if snapshot(work) != generated:
                 raise ValueError('Verification modified source; refusing to publish')
             (output / 'proposal.json').write_text(json.dumps({'files': files, 'checks': checks}))
+            outcome = 'proposal_ready'
             print('All independent checks passed; proposal ready.')
+        except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            stop_reason = failure_reason(error)
+            raise
         finally:
-            report_gateway(gateway)
+            report_gateway(gateway, output, outcome, int((time.monotonic() - started) * 1000), stop_reason, request.get('number'))
             for container in containers + [gateway]:
                 subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(['docker', 'network', 'rm', network], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
