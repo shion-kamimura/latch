@@ -12,11 +12,12 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、指定したI
 ## 実行
 
 1. 対象Issueの目的・スコープ・受け入れ条件をレビューします。第三者のIssueも入力できるため、本文の内容を確認してから実行してください。
-2. Actions → **Issue to Draft PR** → **Run workflow** を開き、ブランチは`main`、`issue_number`には開いているIssueの正の整数番号を指定します。
-3. `prepare`、`implement`、`publish`のログを確認します。実行者と再実行者の両方にリポジトリのwrite / maintain / admin権限が必要です。Issue作成・ラベル・コメントでは起動しません。
-4. Draft PRの差分、変更ファイル一覧、検証結果、未検証事項をレビューします。テスト成功はIssueの要件全体の充足を保証しません。
+2. 自動化・開発ルール自体の変更が必要なIssueでは、変更対象と権限への影響をレビューします。実行時の `allow_maintenance` を明示的に有効にした場合だけ、下記の保守変更を提案できます。Issue本文だけでは許可されません。
+3. Actions → **Issue to Draft PR** → **Run workflow** を開き、ブランチは`main`、`issue_number`には開いているIssueの正の整数番号を指定します。
+4. `prepare`、`implement`、`publish`のログを確認します。実行者と再実行者の両方にリポジトリのwrite / maintain / admin権限が必要です。Issue作成・ラベル・コメントでは起動しません。
+5. Draft PRの差分、変更ファイル一覧、検証結果、未検証事項をレビューします。テスト成功はIssueの要件全体の充足を保証しません。
 
-`AGENTS.md`に従い、`feat/automated-<Issue node IDのSHA-256先頭16文字>`という専用ブランチを使用します。Issue番号をブランチに含めず、PR本文の`Closes #番号`で関連付けます。mainには直接コミットしません。
+`AGENTS.md`に明記した自動化専用の例外として、`feat/automated-<Issue node IDのSHA-256先頭16文字>`という専用ブランチを使用します。Issue番号をブランチに含めず、PR本文の`Closes #番号`で関連付けます。mainには直接コミットしません。
 
 同一Issueはconcurrencyで直列化します。対応ブランチにPRがある場合は、閉じたPRも含めて再作成しません。既存PRは人間が更新してください。変更がなければPRを作成しません。ブランチ作成後にPR APIだけが失敗した場合、同じmain・同じ生成内容なら再実行で既存ブランチを利用できます。異なる生成内容、手動変更、mainの更新は上書きせず停止するため、ブランチを確認して手動でPR作成・整理してください。
 
@@ -28,7 +29,8 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、指定したI
 - AIコンテナはDockerのinternal networkだけに接続します。外部通信できる別コンテナの中継が、固定したDeepSeekのchat completions APIにだけ接続します。キーはこの中継の環境変数にのみ渡します。中継にはワークスペースをmountせず、任意URL・リダイレクト・別モデルを許可しません。
 - APIは最大100リクエスト、1リクエスト512 KiB（524,288 bytes）、最大出力8,192 tokens、累積送信JSON 32 MiB（33,554,432 bytes）で制限します。失敗した送信も回数と送信量に含めます。料金による停止は行いません。これらは開発を進めながら実測で調整する初期値で、完了や金額の上限を保証しません。DeepSeek側でも残高・利用状況を管理してください。
 - 通常のAIプロンプト・権限設定だけを安全境界にしません。ただしDockerや信頼したツールの脆弱性まで防ぐ保証はありません。AIに提供する追跡済みソースとIssueはDeepSeekへ送信され得ます。
-- 自動変更は`src/`、`tests/`、`docs/`、`README.md`のUTF-8通常ファイルだけです。最大100ファイル・提案JSON 500 KB。隠しファイル、symlink、path traversal、ワークフロー、`AGENTS.md`、依存関係、設定ファイルの変更は拒否します。これらが必要なIssueは人間が通常の開発フローで対応してください。
+- 通常の自動変更は`src/`、`tests/`、`docs/`配下の `.ts` / `.tsx` / `.js` / `.mjs` / `.cjs` / `.json` / `.md` / `.txt` と `README.md` のUTF-8通常ファイルです。最大100ファイル・提案JSON 500 KB。NULを含む内容、隠しファイル、symlink、path traversal、依存関係、ルート設定ファイルの変更は拒否します。
+- `allow_maintenance=true` の実行では、さらに `AGENTS.md`、`.github/pull_request_template.md`、`.github/automation/` 直下の `.py` と `Dockerfile`、`.github/workflows/` 直下の `.yml` / `.yaml` を提案できます。下位ディレクトリや任意の `.github` ファイルには拡大しません。実行中の権限・隔離・API上限は変えません。ワークフローやDockerfileの変更はデータとして公開し、その変更後の権限やイメージはこの実行では使用しません。
 - AIには実装・テスト・自己修正を指示します。その終了後、依存関係を初期化し、ネットワークのない別コンテナで`pnpm lint` → `pnpm typecheck` → `pnpm format:check` → `pnpm test` → `pnpm build`を実行します。`pnpm test`内部のUnit・Integration → Build → CLI E2Eの順序は維持します。独立検証失敗時はPRを作らず停止します。
 - `publish`: 新しいrunnerで、main由来の信頼したスクリプトだけを実行します。生成物はデータとして再検証し、GitHub Git APIで通常ファイルのtree・commit・branchを作成します。生成コード、テスト、install scriptは実行しません。このジョブだけにcontents / pull-requestsのwrite権限を付与します。
 
@@ -44,6 +46,8 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、指定したI
 ## バージョンと検証
 
 Node.js 26.12.0 / pnpm 12.14.0 / OpenCode 1.19.3を固定しています。DeepSeek公式ドキュメントに従いAPIモデルIDは`deepseek-flash`を使用します。2026年10月21日時点ではDeepSeek-V4.1-Flash-1017に対応するaliasです。モデルaliasの将来的な差し替えはこのリポジトリでは固定できません。
+
+エージェントイメージには、保守変更の自己テスト用にDebianの `python3` も導入します。独立したPython検証には固定した `python:3.12.12-slim-bookworm` を使います。
 
 依存関係はイメージbuild時に`pnpm install --frozen-lockfile`で導入します。オフライン実行時は`PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false`により、コピーした依存関係に対する自動再インストールを抑止します。検証コマンドやlockfileは変更しません。
 
@@ -137,3 +141,19 @@ Issue #10 の起動引数を固定バージョンで再現すると、配列引�
 - 記録は1回のワークフロー実行単位です。同一Issueの再実行は別記録・別上限となるため、1 PRに至る費用を見る場合は失敗した試行も集計します。GitHubの実行番号・attemptとartifactを対応づけて比較してください。
 
 数件から十数件の実行後、完了率、停止理由、入力・出力・キャッシュ量、出力打ち切り、所要時間を比較して調整します。上限に余裕があるのに進まない場合は、プロンプトやツールの失敗を別途調べます。設定は自動的には変更しません。
+
+## Repository Policy Checkと保守変更
+
+実装前に、AIへIssueの目的・スコープ・受け入れ条件と、`AGENTS.md`、Issue設計ガイド、この文書、PRテンプレートの参照を指示します。許可範囲で実現できない場合は、部分実装や禁止操作の繰り返しをせず停止するよう指示します。プロンプトだけでは遵守を保証しません。
+
+実装後は、mainの固定したbaseから読み込んだ信頼した `policy.py` で、要求形式、ブランチ名、変更可能パス、拡張子、通常のUTF-8テキスト、重複ファイルを検査します。公開直前にも新しいrunner上の同じbaseのコードで検査し、現在のIssue node IDから生成ブランチを照合します。Issueのタイトル・本文が実行中に変わった場合も公開を停止します。PR本文のIssue紐づけと、変更概要・関連Issue・実装内容・実行したテスト・テスト結果・未検証事項の各項目を、GitHubへの最初の書き込み前に検査します。生成された `policy.json` の自己申告を合否判定には使いません。
+
+保守変更でも、ホストの実行コード、公開処理、ポリシー、依存関係、Dockerイメージは変更前のbaseに固定します。候補のPythonは、ネットワーク・秘密情報なし、非root、read-only、リソース制限付きの別Pythonコンテナで実行します。変更前の境界テストと候補のテストを別々のPythonプロセスで実行し、両方の成功を追加の `automation` チェックとして要求します。候補のテストやモジュールも信頼できないコードであり、成功は安全性の証明ではありません。ワークフロー実行やDockerfileの再ビルドはこの追加チェックには含めません。これらの変更後の挙動は人間が差分をレビューし、通常CI等で確認します。
+
+ポリシー違反時は `stage=repository_policy error=<固定ラベル>` で停止し、PRを作成しません。実装側では `policy.json` に固定した違反種別を記録し、`issue-diagnostics` に保存します。API診断の停止理由は `repository_policy_failed` になります（API上限で停止した場合は上限理由を優先）。診断にIssue本文、ファイル内容、生のAIログ、例外詳細、秘密情報を含めません。
+
+機械的なスコープ判定は許可パスの範囲だけです。Issueとの意味的整合、受け入れ条件全体の充足、設計・依存・権限変更の事前承認の妥当性、生成テスト、自動化の安全性は未検証として残し、PR本文に人間の確認事項を明記します。`allow_maintenance` は提案許可であり、変更後のGitHub権限やポリシーの適用承認ではありません。Draft PRのみを作成し、自動承認・自動マージは行いません。GitHub側のトークンや組織ポリシーがワークフローファイルの公開を拒否する場合は、安全に停止します。PATの追加や権限の自動拡大は行わず、人間が通常の開発フローで対応してください。
+
+### Issue #18の失敗した実行について
+
+実行 `39746532604` は100回のAPI送信に成功した後、101回目を `request_limit` で拒否して停止しました。生のAIログを保存していないため、ツール呼び出しの具体的な繰り返しは判定不能です。一方、当時はIssue #18が要求する `AGENTS.md` と自動化コードの変更が禁止されており、その許可範囲では完了できませんでした。API上限は増やさず、保守変更の明示的な提案許可と独立検証を追加しています。旧実行の再実行は古いコードを使うため、修正をmainにマージ後、最新mainから新しく手動実行してください。#18自体をこの修正で完了した場合は、同じIssueを再度自動実装する必要はありません。

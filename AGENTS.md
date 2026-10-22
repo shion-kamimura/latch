@@ -58,6 +58,8 @@ Latchは、AIが生成したコードがPRの要求を満たすかを、実際�
 - GitHub Issueの目的・スコープ・受け入れ条件を確認し、遵守する。
 - 原則としてIssue単位で作業ブランチを作成する。Issueがない作業でも専用ブランチを使用する。
 - ブランチ名は `<type>/<short-description>` とし、説明は英小文字のkebab-caseで簡潔に記述する（例: `feat/pr-verification`、`fix/cli-exit-code`、`docs/project-vision`）。Issue番号はブランチ名に含めず、関連IssueはPR本文で紐づける。
+- 例外として、Issue to Draft PRの自動生成ブランチは `feat/automated-<Issue node IDのSHA-256先頭16文字>` を使用する。信頼した公開処理がIssueとの対応を検証する。通常の手作業ブランチにはこの例外を適用しない。
+- Issue to Draft PRでは変更前のポリシーを適用する。`allow_maintenance=true` を権限のある実行者が明示した場合だけ、`AGENTS.md` と指定した自動化・ワークフローの変更を提案できる。これは変更後の権限・ポリシーの適用承認ではなく、Draft PRへの提案許可である。適用には人間のレビューを必要とする。詳細は [自動化の変更範囲と独立検証](docs/issue-draft-pr.md) を参照する。
 - `<type>` は変更の目的に合わせ、`feat`（機能追加）、`fix`（不具合修正）、`docs`（文書）、`refactor`（動作を変えない構造整理）、`test`（テスト）、`ci`（CI）、`chore`（開発環境・保守）を使用する。
 - mainブランチへ直接コミットしない。変更はPull Requestでレビューを受ける。
 - 動作変更を伴う場合は、適切なUnit・Integration・CLI E2Eテストを追加または更新する。

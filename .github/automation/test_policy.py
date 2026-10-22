@@ -1,0 +1,183 @@
+"""Exercise proposal policy and rejection before any GitHub writes."""
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import policy
+import publish
+import run
+
+
+def request(maintenance=False):
+    return {'number': 18, 'title': 'Policy checks', 'body': 'Acceptance criteria',
+            'base': 'a' * 40, 'allow_maintenance': maintenance,
+            'branch': 'feat/automated-' + hashlib.sha256(b'node').hexdigest()[:16]}
+
+
+class PolicyTests(unittest.TestCase):
+    def test_maintenance_requires_explicit_boolean_approval(self):
+        paths = ['AGENTS.md', '.github/automation/policy.py', '.github/automation/Dockerfile',
+                 '.github/workflows/ci.yml', '.github/pull_request_template.md']
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertFalse(run.allowed(path))
+                self.assertFalse(run.allowed(path, 'true'))
+                self.assertTrue(run.allowed(path, True))
+                with self.assertRaises(policy.PolicyError):
+                    run.changes({}, {path: b'proposal'})
+                self.assertEqual(run.changes({}, {path: b'proposal'}, True)[0]['path'], path)
+
+    def test_approval_does_not_allow_arbitrary_configuration_or_files(self):
+        for path in ['package.json', 'pnpm-lock.yaml', '.npmrc', 'src/.env', 'docs/key.pem',
+                     'tests/payload.exe', '.github/automation/.env', '.github/automation/a/b.py',
+                     '.github/workflows/../automation/a.py', '.github/actions/a.yml',
+                     '.github/workflows/a.yml/extra', '/AGENTS.md', 'src/../AGENTS.md',
+                     'src/a\\b.ts', '.github/automation/a.py\n', 'docs/a\x00.md']:
+            with self.subTest(path=path):
+                self.assertFalse(run.allowed(path, True))
+
+    def test_text_types_duplicates_and_limits_are_enforced(self):
+        for files in [[{'path': 'docs/a.md', 'content': 'secret\x00value'}],
+                      [{'path': 'src/a.ts', 'content': 5}],
+                      [{'path': 'docs/a.md', 'content': 'x'}] * 2,
+                      [{'path': 'docs/a.md', 'content': 'x', 'mode': '120000'}]]:
+            with self.assertRaises(policy.PolicyError):
+                policy.validate_files(files, True)
+        policy.validate_files([{'path': 'docs/old.md', 'content': None}])
+
+    def test_branch_and_request_validation(self):
+        policy.validate_request(request())
+        for key, value in [('branch', 'feat/change-18'), ('branch', 'feat/automated-xyz'),
+                           ('number', True), ('number', 0), ('base', '../main'),
+                           ('allow_maintenance', 'true'), ('title', None)]:
+            with self.subTest(key=key), self.assertRaises(policy.PolicyError):
+                policy.validate_request(dict(request(), **{key: value}))
+
+    def test_issue_identity_and_requirements_cannot_change(self):
+        issue = {'node_id': 'node', 'state': 'open', 'title': 'Policy checks', 'body': 'Acceptance criteria'}
+        policy.validate_issue(request(), issue)
+        for change in [{'node_id': 'different'}, {'state': 'closed'}, {'title': 'changed'},
+                       {'body': 'changed'}, {'pull_request': {}}]:
+            with self.assertRaises(policy.PolicyError):
+                policy.validate_issue(request(), dict(issue, **change))
+
+    def test_pr_sections_and_issue_link(self):
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_RUN_ID': '123'}):
+            body = publish.pr_body(request(), [{'path': 'src/a.ts', 'content': 'x'}])
+        policy.validate_body(body, 18)
+        for section in policy.REQUIRED_SECTIONS:
+            with self.assertRaises(policy.PolicyError):
+                policy.validate_body(body.replace('## ' + section, '## removed'), 18)
+        with self.assertRaises(policy.PolicyError):
+            policy.validate_body(body.replace('Closes #18', 'Closes #19'), 18)
+
+    def test_report_distinguishes_mechanical_scope_and_human_review(self):
+        report = policy.report(request(True), [{'path': 'AGENTS.md', 'content': 'proposal'}])
+        self.assertEqual(report['scope_check'], 'allowed_paths_only')
+        self.assertIn('semantic_issue_scope', report['human_review_required'])
+        self.assertIn('prior_approvals', report['human_review_required'])
+        self.assertTrue(report['maintenance_approved'])
+
+    def test_maintenance_requires_extra_independent_check(self):
+        files = [{'path': '.github/automation/run.py', 'content': 'proposal'}]
+        checks = dict.fromkeys(run.CHECKS, 0)
+        with self.assertRaises(policy.PolicyError):
+            publish.validate({'files': files, 'checks': checks}, True)
+        checks[policy.AUTOMATION_CHECK] = 0
+        self.assertEqual(publish.validate({'files': files, 'checks': checks}, True), files)
+        checks[policy.AUTOMATION_CHECK] = 1
+        with self.assertRaises(policy.PolicyError):
+            publish.validate({'files': files, 'checks': checks}, True)
+
+    def test_policy_failure_has_only_fixed_diagnostic_label(self):
+        error = policy.PolicyError('forbidden_path')
+        self.assertEqual(str(error), 'stage=repository_policy error=forbidden_path')
+        self.assertEqual(run.failure_reason(error), 'repository_policy_failed')
+        with self.assertRaises(policy.PolicyError) as caught:
+            run.changes({}, {'docs/a.md': b'private-data\xff'})
+        self.assertNotIn('private-data', str(caught.exception))
+
+    def test_invalid_body_or_changed_issue_stops_before_any_write(self):
+        for changed_issue in [False, True]:
+            with self.subTest(changed_issue=changed_issue), tempfile.TemporaryDirectory() as root:
+                Path(root, 'issue.json').write_text(json.dumps(request()))
+                Path(root, 'proposal.json').write_text(json.dumps({
+                    'files': [{'path': 'src/a.ts', 'content': 'x'}],
+                    'checks': dict.fromkeys(run.CHECKS, 0)}))
+                def api(method, path, data=None):
+                    self.assertEqual(method, 'GET', 'Policy must run before the first GitHub write')
+                    if path.startswith('/issues/'):
+                        return {'node_id': 'node', 'state': 'open', 'title': 'Policy checks',
+                                'body': 'changed' if changed_issue else 'Acceptance criteria'}
+                    if path.startswith('/pulls?'):
+                        return []
+                    return {'object': {'sha': 'a' * 40}}
+                with patch.dict(os.environ, {'REQUEST_PATH': root + '/issue.json', 'OUTPUT_PATH': root,
+                                             'GITHUB_REPOSITORY': 'owner/repo'}), \
+                        patch.object(publish, 'api', api), patch.object(publish, 'pr_body', return_value='invalid'):
+                    with self.assertRaises(policy.PolicyError):
+                        publish.main()
+
+    def test_maintenance_proposal_creates_only_a_draft_after_checks(self):
+        with tempfile.TemporaryDirectory() as root:
+            data = request(True)
+            Path(root, 'issue.json').write_text(json.dumps(data))
+            Path(root, 'proposal.json').write_text(json.dumps({
+                'files': [{'path': 'AGENTS.md', 'content': 'Reviewed proposal'}],
+                'checks': dict.fromkeys(run.CHECKS + [policy.AUTOMATION_CHECK], 0)}))
+            writes = []
+            def api(method, path, body=None):
+                if method == 'GET':
+                    if path.startswith('/issues/'):
+                        return {'node_id': 'node', 'state': 'open', 'title': data['title'], 'body': data['body']}
+                    if path.startswith('/pulls?'):
+                        return []
+                    if path == '/git/ref/heads/main':
+                        return {'object': {'sha': data['base']}}
+                    if path == '/git/commits/' + data['base']:
+                        return {'tree': {'sha': 'b' * 40}}
+                    from urllib.error import HTTPError
+                    raise HTTPError(path, 404, 'not found', {}, None)
+                writes.append((path, body))
+                if path == '/pulls':
+                    self.assertTrue(body['draft'])
+                    self.assertEqual(body['base'], 'main')
+                    policy.validate_body(body['body'], 18)
+                    self.assertIn('未検証', body['body'])
+                    return {'html_url': 'https://example.invalid/draft'}
+                return {'sha': 'c' * 40}
+            with patch.dict(os.environ, {'REQUEST_PATH': root + '/issue.json', 'OUTPUT_PATH': root,
+                                         'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_RUN_ID': '123'}), \
+                    patch.object(publish, 'api', api):
+                publish.main()
+            self.assertEqual([path for path, _ in writes],
+                             ['/git/trees', '/git/commits', '/git/refs', '/pulls'])
+            self.assertEqual(writes[0][1]['tree'][0]['mode'], '100644')
+            self.assertEqual(writes[2][1]['ref'], 'refs/heads/' + data['branch'])
+
+    def test_prompt_includes_rules_acceptance_and_stop_condition(self):
+        prompt = run.agent_prompt(request())
+        self.assertIn('acceptance criteria', prompt)
+        self.assertIn('stop immediately without partial changes', prompt)
+        self.assertIn('docs/issue-design.md', prompt)
+        self.assertNotIn('.github/automation/*.py,', prompt)
+        self.assertIn('.github/automation/*.py,', run.agent_prompt(request(True)))
+
+    def test_candidate_automation_only_executes_in_isolated_container(self):
+        command = run.automation_command('/candidate', '/base', 'isolated-policy-check')
+        self.assertIn('none', command)
+        self.assertIn('--read-only', command)
+        self.assertIn('type=bind,src=/base,dst=/trusted,readonly', command)
+        self.assertIn('type=bind,src=/candidate,dst=/work,readonly', command)
+        self.assertIn('PYTHONPATH=/work/.github/automation', command)
+        self.assertIn('cp /trusted/test_*.py /tmp/base-tests/', command[-1])
+        self.assertFalse(any('KEY' in arg or 'TOKEN' in arg for arg in command))
+
+
+if __name__ == '__main__':
+    unittest.main()

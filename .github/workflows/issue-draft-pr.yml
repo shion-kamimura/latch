@@ -7,6 +7,11 @@ on:
         description: Open Issue number to implement
         required: true
         type: string
+      allow_maintenance:
+        description: Allow reviewed Issue to propose AGENTS and automation/workflow changes (human review required)
+        required: true
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -29,6 +34,7 @@ jobs:
         id: issue
         env:
           ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ALLOW_MAINTENANCE: ${{ inputs.allow_maintenance }}
         with:
           script: |
             const fs = require('node:fs');
@@ -47,7 +53,8 @@ jobs:
             if (prs.length) throw new Error(`PR already exists: ${prs[0].html_url}`);
             const {data: ref} = await github.rest.git.getRef({...repo, ref: 'heads/main'});
             fs.mkdirSync('request', {recursive: true});
-            fs.writeFileSync('request/issue.json', JSON.stringify({number: issue.number, title: issue.title, body: issue.body || '', branch, base: ref.object.sha}));
+            if (!['true', 'false'].includes(process.env.ALLOW_MAINTENANCE)) throw new Error('Invalid maintenance approval');
+            fs.writeFileSync('request/issue.json', JSON.stringify({number: issue.number, title: issue.title, body: issue.body || '', branch, base: ref.object.sha, allow_maintenance: process.env.ALLOW_MAINTENANCE === 'true'}));
             core.setOutput('base', ref.object.sha);
       - uses: actions/upload-artifact@v4
         with:
@@ -85,7 +92,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: issue-diagnostics
-          path: ${{ runner.temp }}/proposal/diagnostics.json
+          path: |
+            ${{ runner.temp }}/proposal/diagnostics.json
+            ${{ runner.temp }}/proposal/policy.json
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-artifact@v4

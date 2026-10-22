@@ -92,7 +92,8 @@ class BoundaryTests(unittest.TestCase):
                 number, base = 7, 'a' * 40
                 branch = 'feat/automated-' + hashlib.sha256(b'issue-node').hexdigest()[:16]
                 request = Path(root) / 'issue.json'
-                request.write_text(json.dumps({'number': number, 'base': base, 'branch': branch}))
+                request.write_text(json.dumps({'number': number, 'base': base, 'branch': branch,
+                                               'title': 'Example', 'body': 'Requirements'}))
                 Path(root, 'proposal.json').write_text(json.dumps({
                     'files': [{'path': 'src/new.ts', 'content': 'example'}],
                     'checks': dict.fromkeys(run.CHECKS, 0),
@@ -102,7 +103,8 @@ class BoundaryTests(unittest.TestCase):
                     calls.append((method, path, data))
                     self.assertEqual(method, 'GET')
                     if path == '/issues/7':
-                        return {'state': 'open', 'node_id': 'issue-node'}
+                        return {'state': 'open', 'node_id': 'issue-node',
+                                'title': 'Example', 'body': 'Requirements'}
                     if path.startswith('/pulls?'):
                         return [{'number': 8}] if existing else []
                     return {'object': {'sha': 'b' * 40}}
