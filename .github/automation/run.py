@@ -515,6 +515,13 @@ def main():
         archive = subprocess.check_output(['git', 'archive', 'HEAD'])
         with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
             tar.extractall(work, filter='data')
+        source = request.get('source', request['base'])
+        if source != request['base']:
+            shutil.rmtree(work)
+            work.mkdir()
+            archive = subprocess.check_output(['git', '-C', os.environ['CANDIDATE_PATH'], 'archive', source])
+            with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+                tar.extractall(work, filter='data')
         before = snapshot(work)
         uid, gid = os.getuid(), os.getgid()
         common = [*RUNTIME_ENV, '--cap-drop=ALL', '--security-opt=no-new-privileges',

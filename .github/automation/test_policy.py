@@ -52,11 +52,13 @@ class PolicyTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(policy.PolicyError):
                 policy.validate_request(dict(request(), **{key: value}))
 
-    def test_issue_identity_and_requirements_cannot_change(self):
+    def test_issue_identity_is_fixed_but_requirement_drift_is_reported(self):
         issue = {'node_id': 'node', 'state': 'open', 'title': 'Policy checks', 'body': 'Acceptance criteria'}
-        policy.validate_issue(request(), issue)
-        for change in [{'node_id': 'different'}, {'state': 'closed'}, {'title': 'changed'},
-                       {'body': 'changed'}, {'pull_request': {}}]:
+        self.assertEqual(policy.validate_issue(request(), issue), 'unchanged')
+        for change, expected in [({'state': 'closed'}, 'closed'), ({'title': 'changed'}, 'changed'),
+                                  ({'body': ' Acceptance  criteria '}, 'format_only')]:
+            self.assertEqual(policy.validate_issue(request(), dict(issue, **change)), expected)
+        for change in [{'node_id': 'different'}, {'pull_request': {}}]:
             with self.assertRaises(policy.PolicyError):
                 policy.validate_issue(request(), dict(issue, **change))
 
@@ -109,7 +111,8 @@ class PolicyTests(unittest.TestCase):
                                 'body': 'changed' if changed_issue else 'Acceptance criteria'}
                     if path.startswith('/pulls?'):
                         return []
-                    return {'object': {'sha': 'a' * 40}}
+                    from urllib.error import HTTPError
+                    raise HTTPError(path, 404, 'not found', {}, None)
                 with patch.dict(os.environ, {'REQUEST_PATH': root + '/issue.json', 'OUTPUT_PATH': root,
                                              'GITHUB_REPOSITORY': 'owner/repo'}), \
                         patch.object(publish, 'api', api), patch.object(publish, 'pr_body', return_value='invalid'):
@@ -130,8 +133,8 @@ class PolicyTests(unittest.TestCase):
                         return {'node_id': 'node', 'state': 'open', 'title': data['title'], 'body': data['body']}
                     if path.startswith('/pulls?'):
                         return []
-                    if path == '/git/ref/heads/main':
-                        return {'object': {'sha': data['base']}}
+                    if path == '/git/ref/heads/' + data['branch'] and any(p == '/git/refs' for p, _ in writes):
+                        return {'object': {'sha': 'c' * 40}}
                     if path == '/git/commits/' + data['base']:
                         return {'tree': {'sha': 'b' * 40}}
                     from urllib.error import HTTPError
