@@ -23,7 +23,7 @@ class BoundaryTests(unittest.TestCase):
         budget = gateway.Budget()
         with self.assertRaises(ValueError):
             budget.reserve(gateway.MAX_BYTES + 1)
-        with patch.object(gateway, 'MAX_RESERVED', gateway.MAX_OUTPUT):
+        with patch.object(gateway, 'MAX_RESERVED', 0):
             with self.assertRaises(ValueError):
                 gateway.Budget().reserve(1)
 

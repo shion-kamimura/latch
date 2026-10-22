@@ -4,14 +4,16 @@ import http.server
 import json
 import os
 import socket
+import time
 import urllib.error
 import urllib.request
 
 MODEL = 'deepseek-flash'
-MAX_REQUESTS = 24
-MAX_BYTES = 120_000
-MAX_OUTPUT = 4096
-MAX_RESERVED = 2_000_000
+MAX_REQUESTS = 100
+MAX_BYTES = 512 * 1024
+MAX_OUTPUT = 8192
+MAX_RESERVED = 32 * 1024 * 1024
+MAX_CONTEXT = 131072
 
 
 class Rejected(ValueError):
@@ -26,9 +28,9 @@ class Budget:
         self.reserved = 0
 
     def reserve(self, size):
-        # UTF-8 bytes plus output allowance conservatively bounds ordinary text
-        # usage; this is an operational limit, not an exact currency budget.
-        amount = size + MAX_OUTPUT
+        # Bound cumulative outbound JSON volume, independently of token usage.
+        # This is an operational byte limit, not a monetary or token budget.
+        amount = size
         if size > MAX_BYTES:
             raise Rejected('request_too_large')
         if self.requests >= MAX_REQUESTS:
@@ -69,6 +71,32 @@ def stream_response(data):
                        'choices': [{'index': choice['index'], 'delta': {}, 'finish_reason': choice['finish_reason']}],
                        'usage': data.get('usage', {})})
     return (''.join('data: ' + json.dumps(chunk) + '\n\n' for chunk in chunks) + 'data: [DONE]\n\n').encode()
+
+
+def usage_record(data, elapsed_ms):
+    """Extract only counts and fixed finish labels; never include model content."""
+    def count(value):
+        return value if type(value) is int and 0 <= value <= 10_000_000 else None
+    usage = data.get('usage', {}) if isinstance(data, dict) else {}
+    if not isinstance(usage, dict):
+        usage = {}
+    prompt = count(usage.get('prompt_tokens'))
+    completion = count(usage.get('completion_tokens'))
+    hit = count(usage.get('prompt_cache_hit_tokens'))
+    miss = count(usage.get('prompt_cache_miss_tokens'))
+    if prompt is None or hit is None or miss is None or hit + miss != prompt:
+        hit = miss = None
+    finish = 'unknown'
+    choices = data.get('choices') if isinstance(data, dict) else None
+    if isinstance(choices, list) and len(choices) == 1 and isinstance(choices[0], dict):
+        candidate = choices[0].get('finish_reason')
+        if isinstance(candidate, str) and candidate in {'stop', 'length', 'tool_calls',
+                'content_filter', 'insufficient_system_resource', 'aborted'}:
+            finish = candidate
+    return {'event': 'api_usage', 'prompt_tokens': prompt, 'completion_tokens': completion,
+            'cache_hit_tokens': hit, 'cache_miss_tokens': miss, 'finish_reason': finish,
+            'elapsed_ms': max(0, min(int(elapsed_ms), 3_600_000)),
+            'completed_at_unix': int(time.time())}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -128,6 +156,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             class NoRedirect(urllib.request.HTTPRedirectHandler):
                 def redirect_request(self, *_args, **_kwargs):
                     return None
+            started = time.monotonic()
             type(self).attempted += 1
             self.status('attempt', request_bytes=len(body))
             with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
@@ -142,6 +171,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.status('invalid_response', status)
                     self.reply(502, {'error': 'Invalid upstream response'})
                     return
+            print(json.dumps(usage_record(data, (time.monotonic() - started) * 1000)), flush=True)
             if json.loads(raw).get('stream'):
                 payload = stream_response(data)
                 self.send_response(200)
