@@ -164,7 +164,7 @@ class PolicyTests(unittest.TestCase):
         prompt = run.agent_prompt(request())
         self.assertIn('acceptance criteria', prompt)
         self.assertIn('stop immediately without partial changes', prompt)
-        self.assertIn('docs/issue-design.md', prompt)
+        self.assertIn('documents relevant to this implementation', prompt)
         self.assertNotIn('.github/automation/*.py,', prompt)
         self.assertIn('.github/automation/*.py,', run.agent_prompt(request(True)))
 
