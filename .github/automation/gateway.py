@@ -3,6 +3,7 @@
 import http.server
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 
@@ -62,6 +63,15 @@ def stream_response(data):
 
 class Handler(http.server.BaseHTTPRequestHandler):
     budget = Budget()
+    received = 0
+    attempted = 0
+
+    @classmethod
+    def status(cls, outcome, http_status=0):
+        # Never include URLs, headers, exception strings, or request/response bodies.
+        print(json.dumps({'event': 'api_status', 'outcome': outcome,
+                          'received': cls.received, 'attempted': cls.attempted,
+                          'http_status': http_status}), flush=True)
 
     def log_message(self, *_args):
         pass
@@ -81,7 +91,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply(404, {'error': 'Unsupported endpoint'})
 
     def do_POST(self):
+        type(self).received += 1
         if self.path != '/v1/chat/completions':
+            self.status('rejected')
             self.reply(404, {'error': 'Unsupported endpoint'})
             return
         try:
@@ -99,8 +111,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             class NoRedirect(urllib.request.HTTPRedirectHandler):
                 def redirect_request(self, *_args, **_kwargs):
                     return None
+            type(self).attempted += 1
+            self.status('attempt')
             with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
-                data = json.loads(response.read(4_000_001))
+                status = response.status
+                self.status('success', status)
+                try:
+                    raw_response = response.read(4_000_001)
+                    if len(raw_response) > 4_000_000:
+                        raise ValueError
+                    data = json.loads(raw_response)
+                except (ValueError, UnicodeError):
+                    self.status('invalid_response', status)
+                    self.reply(502, {'error': 'Invalid upstream response'})
+                    return
             if json.loads(raw).get('stream'):
                 payload = stream_response(data)
                 self.send_response(200)
@@ -110,19 +134,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(payload)
             else:
                 self.reply(200, data)
-            print(f'API request {self.budget.requests}; reserved units {self.budget.reserved}', flush=True)
         except urllib.error.HTTPError as error:
-            print(f'DeepSeek HTTP {error.code}', flush=True)
+            self.status('http_error', error.code)
             self.reply(502, {'error': f'DeepSeek HTTP {error.code}'})
+        except (TimeoutError, socket.timeout):
+            self.status('timeout')
+            self.reply(504, {'error': 'DeepSeek timeout'})
+        except urllib.error.URLError as error:
+            timed_out = isinstance(error.reason, TimeoutError)
+            self.status('timeout' if timed_out else 'transport_error')
+            self.reply(504 if timed_out else 502, {'error': 'DeepSeek connection failed'})
         except (ValueError, KeyError, TypeError):
-            print('API request rejected: invalid payload or budget exhausted', flush=True)
+            self.status('rejected')
             self.reply(400, {'error': 'Invalid payload or API budget exhausted'})
         except Exception:
-            print('DeepSeek transport failure', flush=True)
+            self.status('transport_error')
             self.reply(502, {'error': 'DeepSeek transport failure'})
 
 
 if __name__ == '__main__':
     if not os.environ.get('DEEPSEEK_API_KEY'):
         raise SystemExit('DEEPSEEK_API_KEY is required')
-    http.server.HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
+    server = http.server.HTTPServer(('0.0.0.0', 8080), Handler)
+    Handler.status('ready')
+    server.serve_forever()
