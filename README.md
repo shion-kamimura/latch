@@ -83,6 +83,8 @@ https://github.com/shion-kamimura/latch の最新の docs/issue-design.md を参
 
 IssueからOpenCode / DeepSeekで実装・検証し、Draft PRを作成する手動ワークフローは [IssueからDraft PRを作成する](docs/issue-draft-pr.md) を参照してください。
 
+自動化の分割実装・横断モック検証と未検証事項は [#32検証記録](docs/ai-development-validation.md) にまとめています。
+
 PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。これは利用仕様であり、検証機能はまだ実装していません。利用者設定による送信許可の再利用、閉じたIssueの再現検証、隔離した依存準備と制御されたテスト通信も仕様として整理しています。実装は #23〜#26で進めます。
 
 `src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。

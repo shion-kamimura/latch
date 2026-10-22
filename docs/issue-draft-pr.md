@@ -19,8 +19,8 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、IssueをOpenC
 - リポジトリ全体の通常の変更を提案できます。`package.json`、lockfile、設定、`.github/`の下位ディレクトリ、`AGENTS.md`、fixture、`.patch`、YAML、シェルも含みます。
 - パスは正規化した相対パスのみ。絶対パス、空要素、`.` / `..`、`.git`、バックスラッシュ、制御文字を拒否します。空白・日本語は許可し、表示はJSONエスケープします。
 - 通常ファイルはUTF-8またはbase64で表現し、Gitモード100644 / 100755を保持します。内部symlinkは120000とリンク先で表現します。絶対・境界外・Gitメタデータへのリンクと循環リンクを拒否し、snapshot時にも実際のリンク解決を確認します。
-- 変更済みファイルは各8 MiB、最大1,000件、公開JSONは32 MiBまでです。100件または1 MiB超は警告です。GitHub APIにも同じ上限を適用し、バイナリはblob APIを使います。既存の未変更ファイルはストリームでhashし、一律の件数・500 KB制限を適用しません。
-- `node_modules`、`dist`、`coverage`、`__pycache__`、`.cache`、`.pnpm-store`は生成物として提出から除外します。検証後の提出ソースの変更は再検証なしに公開しません。
+- 変更済みファイルは各8 MiB、最大1,000件、公開JSONは32 MiBまでです。100件または1 MiB超は警告です。GitHub APIにも同じ上限を適用し、バイナリはblob APIを使います。既存の未変更ファイルはストリームでhashし、一律の件数・500 KB制限を適用しません。hash読取総量は2 GiBまでです。
+- `node_modules`、`dist`、`coverage`、`__pycache__`、`.cache`、`.pnpm-store`、`.eslintcache`、`.prettiercache`、`*.tsbuildinfo`は生成物として提出から除外します。検証後の提出ソースの変更は再検証なしに公開しません。
 - `.env`の名前だけで拒否しません。ダミーの`.env.example`も扱えます。秘密鍵、既知のトークン形式、長い認証値の代入を内容検査し、base64も復号して検査します。検出器は任意の秘密情報を完全に検出する保証はありません。実秘密情報をfixtureへ置かないでください。
 - `publish`は別runnerで提案をデータとして再検査してGit APIへ書き込みます。候補のコード・テスト・install scriptを実行しません。このジョブだけがcontents / pull-requestsのwrite権限を持ちます。GitHubや実行基盤の権限制約を迂回しません。
 
@@ -98,7 +98,7 @@ API失敗は `configuration_error`、`model_configuration_error`、`api_error`�
 
 テスト失敗、環境不足、AI非ゼロ終了、タイムアウト、予算停止でも、候補コンテナ停止後に同じ安全検査を行い、安全な部分成果を提案artifactとDraft PRに残します。成功・失敗・timeout・未実行・環境不足をschema v2で区別し、実装状態も別記します。未完了時のimplementジョブは失敗のまま、publishを安全なartifactの存在で起動します。独立チェックは可能な範囲で継続します。既定test内でbuildが成功したときは重複buildを行わずcovered_by_testと記録します。PR見出しの完全一致は要求せず、Issueリンクと実結果を保持します。
 
-安全検査に失敗した候補は公開しません。policy.jsonに固定理由、秘密パターンを秘匿したJSONエスケープ済み拒否パス、次の対応を残します。生transcript・生の検証出力は一時領域から外へ出しません。公開するエラー要約は分類と終了コードです。任意ログの完全な秘匿は保証できないため、全文ログの無条件保存は行いません。
+安全検査に失敗した候補は公開しません。policy.jsonに固定理由、秘密パターンを秘匿したJSONエスケープ済み拒否パス、次の対応を残します。生transcript・生の検証出力は一時領域から外へ出しません。公開するエラー要約は分類と終了コードです。任意ログの完全な秘匿は保証できないため、全文ログの無条件保存は行いません。ホストの生ログは各16 MiBのfile-size上限、Dockerのlocalログは各10 MiB×2世代で制限します。ログ上限超過も正常完了にせず、安全な部分成果の経路へ進めます。
 
 提案artifactはアクセス権のあるリポジトリ利用者が参照でき、1日保持します。数値・固定ラベル・安全な拒否パスの診断は成功・失敗とも14日保持します。Actionsからartifactを確認し、失敗したチェックを修正して再実行します。runner強制終了時は保存できない場合があります。安全検査に失敗した変更を公開せず、意味的なIssue整合・全受け入れ条件・生成テストの妥当性は人間のレビューに残します。
 
@@ -111,3 +111,5 @@ API失敗は `configuration_error`、`model_configuration_error`、`api_error`�
 実行39779457307は旧`forbidden_path`で停止しましたが、具体的な拒否ファイルは未特定です。通常の設定・差分データが通る回帰テストを追加しても、元実行の原因を再現済みとは扱いません。
 
 [DeepSeek料金・仕様](https://api-docs.deepseek.com/quick_start/pricing/) / [OpenCode設定](https://opencode.ai/docs/config/) / [GitHubトークンによるイベント](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow)
+
+横断確認の具体的な結果と未検証事項は [#32分割実装と横断検証の記録](ai-development-validation.md) を参照してください。

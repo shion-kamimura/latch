@@ -1,0 +1,7 @@
+[
+  { "url": "/duration?ms=-2", "status": 400 },
+  { "url": "/duration?ms=-1", "status": 400 },
+  { "url": "/duration?ms=0", "status": 200 },
+  { "url": "/duration?ms=5", "status": 200 },
+  { "url": "/duration?ms=NaN", "status": 400 }
+]

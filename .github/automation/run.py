@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import shutil
 import subprocess
 import tarfile
@@ -18,12 +19,15 @@ import time
 import uuid
 
 from gateway import MAX_BYTES, MAX_CONTEXT, MAX_OUTPUT, MAX_REQUESTS, MAX_RESERVED, cost_config, model_config
-from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_request, validate_link, MAX_FILE_BYTES, maintenance_path
+from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_request, validate_link, MAX_FILE_BYTES, MAX_PROPOSAL_BYTES, maintenance_path
 
 AGENT_TIMEOUT = 3600
 
 CHECKS = ['lint', 'typecheck', 'format:check', 'test', 'build']
-IGNORED = {'.git', 'node_modules', 'dist', 'coverage', '__pycache__', '.cache', '.pnpm-store'}
+MAX_SNAPSHOT_BYTES = 2 * 1024**3
+LOG_LIMIT_BYTES = 16 * 1024**2
+DOCKER_LOG_LIMITS = ['--log-driver=local', '--log-opt=max-size=10m', '--log-opt=max-file=2']
+IGNORED = {'.git', 'node_modules', 'dist', 'coverage', '__pycache__', '.cache', '.pnpm-store', '.eslintcache', '.prettiercache'}
 RUNTIME_ENV = ['-e', 'XDG_DATA_HOME=/tmp/xdg/data', '-e', 'XDG_CONFIG_HOME=/tmp/xdg/config',
                '-e', 'XDG_CACHE_HOME=/tmp/xdg/cache', '-e', 'XDG_STATE_HOME=/tmp/xdg/state',
                '-e', 'PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false']
@@ -53,11 +57,14 @@ class SourceFile:
 def snapshot(root):
     root = Path(root).resolve()
     result = {}
+    hashed_bytes = 0
     for directory, dirs, files in os.walk(root, followlinks=False):
         dirs[:] = [name for name in dirs if name not in IGNORED]
         links = [name for name in dirs if (Path(directory) / name).is_symlink()]
         dirs[:] = [name for name in dirs if name not in links]
         for name in files + links:
+            if name.endswith('.tsbuildinfo') or name in IGNORED:
+                continue
             path = Path(directory) / name
             relative = path.relative_to(root).as_posix()
             info = path.lstat()
@@ -74,6 +81,9 @@ def snapshot(root):
                 digest = hashlib.sha256(data).hexdigest()
             elif stat.S_ISREG(info.st_mode):
                 mode = '100755' if info.st_mode & 0o111 else '100644'
+                hashed_bytes += info.st_size
+                if hashed_bytes > MAX_SNAPSHOT_BYTES:
+                    raise PolicyError('snapshot_read_limit')
                 # Hash in chunks: unchanged large files do not consume proposal memory.
                 with path.open('rb') as source:
                     digest = hashlib.file_digest(source, 'sha256').hexdigest()
@@ -105,6 +115,10 @@ def changes(before, after, maintenance=False):
         output.append(item)
     validate_files(output)
     return output
+
+
+def limit_log_output():
+    resource.setrlimit(resource.RLIMIT_FSIZE, (LOG_LIMIT_BYTES, LOG_LIMIT_BYTES))
 
 
 def execute(args, **kwargs):
@@ -155,7 +169,7 @@ def run_agent(command, log_path, warnings=None):
     try:
         with open(log_path, 'wb') as log:
             try:
-                result = subprocess.run(command, stdout=log, stderr=log, timeout=AGENT_TIMEOUT)
+                result = subprocess.run(command, stdout=log, stderr=log, timeout=AGENT_TIMEOUT, preexec_fn=limit_log_output)
             except subprocess.TimeoutExpired:
                 raise ValueError(f'stage=opencode_run error=timeout limit_seconds={AGENT_TIMEOUT}') from None
     finally:
@@ -441,7 +455,7 @@ def check_result(status='not_run', exit_code=None, reason='not_started'):
 def independent_check(command, log_path, container):
     try:
         with Path(log_path).open('wb') as log:
-            result = subprocess.run(command, stdout=log, stderr=log, timeout=180)
+            result = subprocess.run(command, stdout=log, stderr=log, timeout=180, preexec_fn=limit_log_output)
         return check_result('passed' if result.returncode == 0 else 'failed', result.returncode, 'exit_code')
     except subprocess.TimeoutExpired:
         return check_result('timeout', reason='time_limit')
@@ -457,7 +471,10 @@ def save_proposal(output, before, work, generated, files, checks, implementation
         raise PolicyError('source_changed')
     validate_files(files)
     value = {'schema_version': 2, 'files': files, 'checks': checks, 'implementation': implementation}
-    Path(output, 'proposal.json').write_text(json.dumps(value) + '\n')
+    serialized = json.dumps(value) + '\n'
+    if len(serialized.encode()) > MAX_PROPOSAL_BYTES:
+        raise PolicyError('proposal_too_large')
+    Path(output, 'proposal.json').write_text(serialized)
     return value
 
 
@@ -487,7 +504,7 @@ def prepare_dependencies(work, common, registry, network, name, temporary):
     log_path = Path(temporary) / 'dependencies.log'
     with log_path.open('wb') as log:
         result = subprocess.run(dependency_command(network, common, registry, name),
-                                stdout=log, stderr=log, timeout=300)
+                                stdout=log, stderr=log, timeout=300, preexec_fn=limit_log_output)
     if result.returncode:
         raise ValueError('stage=dependencies error=' + dependency_failure(log_path))
     # Lifecycle scripts are untrusted: run them with no network, secrets or host mounts.
@@ -495,7 +512,7 @@ def prepare_dependencies(work, common, registry, network, name, temporary):
         result = subprocess.run(['docker', 'run', '--name', name + '-scripts', '--network', 'none',
                                  *common, 'latch-agent', 'pnpm', 'rebuild', '--pending',
                                  '--store-dir=/work/node_modules/.store'],
-                                stdout=log, stderr=log, timeout=180)
+                                stdout=log, stderr=log, timeout=180, preexec_fn=limit_log_output)
     if result.returncode:
         raise ValueError('stage=dependencies error=install_script_failed')
 
@@ -531,7 +548,7 @@ def main():
                 tar.extractall(work, filter='data')
         before = snapshot(work)
         uid, gid = os.getuid(), os.getgid()
-        common = [*RUNTIME_ENV, '--cap-drop=ALL', '--security-opt=no-new-privileges',
+        common = [*RUNTIME_ENV, *DOCKER_LOG_LIMITS, '--cap-drop=ALL', '--security-opt=no-new-privileges',
                   '--pids-limit=256', '--memory=4g', '--cpus=2',
                   '--read-only', '--user', f'{uid}:{gid}',
                   '--tmpfs', '/tmp:rw,nosuid,size=512m',
@@ -558,7 +575,7 @@ def main():
                 tokenizer_mount = ['--mount', f'type=bind,src={tokenizer},dst=/tokenizer,readonly',
                                    '-e', 'LATCH_TOKENIZER_DIRECTORY=/tokenizer',
                                    '-e', 'LATCH_TOKENIZER_SHA256=' + os.environ.get('LATCH_TOKENIZER_SHA256', '')]
-            execute(['docker', 'create', '--name', gateway, '--network', 'bridge',
+            execute(['docker', 'create', *DOCKER_LOG_LIMITS, '--name', gateway, '--network', 'bridge',
                      '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
                      '--user', '65534:65534', '--memory=1g', '--cpus=1', '--pids-limit=32',
                      '-e', 'DEEPSEEK_API_KEY', '-e', 'LATCH_COST_CONFIG=' + pricing,
@@ -577,7 +594,7 @@ def main():
             else:
                 raise ValueError('stage=gateway_startup error=startup_error')
             execute(['docker', 'network', 'create', '--internal', dependency_network], stdout=subprocess.DEVNULL)
-            execute(['docker', 'create', '--name', registry, '--network', 'bridge',
+            execute(['docker', 'create', *DOCKER_LOG_LIMITS, '--name', registry, '--network', 'bridge',
                      '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
                      '--user', '65534:65534', '--memory=128m', '--cpus=1', '--pids-limit=64',
                      '--mount', f'type=bind,src={control / "registry.py"},dst=/registry.py,readonly',
@@ -679,6 +696,6 @@ if __name__ == '__main__':
     try:
         main()
     except subprocess.TimeoutExpired:
-        raise SystemExit('Agent or validation exceeded its time limit; no PR created')
-    except (ValueError, subprocess.CalledProcessError) as error:
-        raise SystemExit(str(error))
+        raise SystemExit('stage=orchestration error=validation_timeout; inspect saved diagnostics and safe artifacts')
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        raise SystemExit('stage=orchestration error=' + failure_reason(error))
