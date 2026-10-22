@@ -23,7 +23,7 @@ INVALID = [None, 1, {}, [], '', 'docs:', 'docs: ', 'docs:   ', 'docs:変更',
            'docs: 制御\x00文字', 'docs: タブ\t文字', 'docs: C1\x85文字',
            'docs: 行\u2028区切り', 'docs: 段落\u2029区切り', 'docs: 隠し\u200b文字',
            'feat: implement Issue #41', 'fix: Issue #41', 'chore: #41',
-           'feat: implement requested changes', 'docs: ' + 'あ' * 251]
+           'feat: implement requested changes', 'docs: ' + 'あ' * 251, 'docs: ' + 'ghp_' + 'A' * 40]
 
 
 class TitleTests(unittest.TestCase):
@@ -72,6 +72,11 @@ class TitleTests(unittest.TestCase):
             with self.assertRaises(policy.PolicyError):
                 run.read_pr_title(work)
 
+    def test_unreadable_metadata_has_fixed_error_without_host_details(self):
+        with patch.object(Path, 'stat', side_effect=PermissionError('private metadata path')):
+            with self.assertRaisesRegex(policy.PolicyError, '^stage=repository_policy error=invalid_pr_title$'):
+                run.read_pr_title(Path('/work'))
+
     def test_metadata_rejects_symlinks_in_file_or_parent(self):
         with tempfile.TemporaryDirectory() as root:
             work = Path(root)
@@ -106,8 +111,8 @@ class TitleTests(unittest.TestCase):
                     return dict(request, state='open', node_id='node')
                 if path.startswith('/pulls?'):
                     return []
-                if path == '/git/ref/heads/main':
-                    return {'object': {'sha': request['base']}}
+                if path == '/git/ref/heads/' + request['branch'] and any(path == '/git/refs' for path, _ in writes):
+                    return {'object': {'sha': 'c' * 40}}
                 if path == '/git/commits/' + request['base']:
                     return {'tree': {'sha': 'b' * 40}}
                 raise HTTPError(path, 404, 'not found', {}, None)

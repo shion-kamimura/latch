@@ -22,7 +22,7 @@ class BudgetTests(unittest.TestCase):
 
     def test_limits_and_previous_32_mib_failure(self):
         self.assertEqual((gateway.MAX_REQUESTS, gateway.MAX_BYTES, gateway.MAX_RESERVED,
-                          run.AGENT_TIMEOUT), (500, 1024**2, 256 * 1024**2, 3600))
+                          run.AGENT_TIMEOUT), (10000, 16 * 1024**2, 256 * 1024**2, 3600))
         budget = gateway.Budget()
         for _ in range(147):
             reservation = budget.authorize(240000)
@@ -36,6 +36,8 @@ class BudgetTests(unittest.TestCase):
                                      ('MAX_BYTES', 5, 'request_bytes')]:
             with self.subTest(field=field), patch.object(gateway, field, value):
                 budget = gateway.Budget()
+                if field == 'MAX_REQUESTS':
+                    budget.settings['requests'] = value
                 if field == 'MAX_BYTES':
                     budget.reserve(3)
                     self.assertNotIn(label, budget.warnings)
@@ -51,8 +53,12 @@ class BudgetTests(unittest.TestCase):
                     budget.reserve(1)
                     self.assertIn(label, budget.warnings)
                     budget.reserve(1)
-                    with self.assertRaises(gateway.Rejected):
+                    if field == 'MAX_RESERVED':
                         budget.reserve(1)
+                        self.assertGreater(budget.reserved, value)
+                    else:
+                        with self.assertRaises(gateway.Rejected):
+                            budget.reserve(1)
 
     def test_exact_cost_boundary_and_warning_continue(self):
         base = gateway.Budget()

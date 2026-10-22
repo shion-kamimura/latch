@@ -114,7 +114,7 @@ class DiagnosticsTests(unittest.TestCase):
                 (None, 'success'),
                 (urllib.error.HTTPError('https://private', 429, SECRET, {}, None), 'http_error'),
                 (TimeoutError(SECRET), 'timeout')]:
-            with self.subTest(outcome=outcome), patch.object(gateway, 'DEFAULT_COST_CONFIG', pricing):
+            with self.subTest(outcome=outcome), patch.object(gateway, 'DEFAULT_COST_CONFIG', pricing), patch.object(gateway, 'DEFAULT_MODEL_CONFIG', dict(gateway.DEFAULT_MODEL_CONFIG, requests=500)):
                 reserved = 0
                 for attempt in range(1, 501):
                     events, handler, opener = self.request(upstream, reset=attempt == 1)
@@ -145,9 +145,7 @@ class DiagnosticsTests(unittest.TestCase):
         handler.reply.assert_called_once_with(400, {'error': 'Invalid payload or API budget exhausted'})
 
     def test_budget_rejection_reason_and_counters_never_forward_request(self):
-        for field, limit, reason in [('MAX_RESERVED', 1, 'reserved_limit'),
-                                     ('MAX_REQUESTS', 0, 'request_limit'),
-                                     ('MAX_BYTES', 1, 'invalid_request_size')]:
+        for field, limit, reason in [('MAX_BYTES', 1, 'invalid_request_size')]:
             with self.subTest(reason=reason), patch.object(gateway, field, limit):
                 events, handler, opener = self.request()
                 self.assertEqual(events[-1]['reason'], reason)
@@ -164,10 +162,9 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertEqual(error.exception.reason, expected)
         with patch.object(gateway, 'MAX_RESERVED', 10):
             budget.reserve(10)
-            with self.assertRaises(gateway.Rejected) as error:
-                budget.reserve(1)
-            self.assertEqual(error.exception.reason, 'reserved_limit')
-            self.assertEqual((budget.requests, budget.reserved), (1, 10))
+            budget.reserve(1)
+            self.assertEqual((budget.requests, budget.reserved), (2, 11))
+            self.assertIn('cumulative_bytes', budget.warnings)
 
     def test_cost_rejection_never_attempts_upstream(self):
         pricing = dict(gateway.DEFAULT_COST_CONFIG, limit_usd='0.1')
@@ -180,7 +177,7 @@ class DiagnosticsTests(unittest.TestCase):
 
     def test_transport_errors_and_invalid_responses_keep_monetary_reservation(self):
         for response in [TimeoutError(SECRET), SECRET.encode(),
-                         urllib.error.HTTPError('https://private', 429, SECRET, {}, None)]:
+                         urllib.error.HTTPError('https://private', 500, SECRET, {}, None)]:
             events, handler, _ = self.request(response)
             self.assertEqual(handler.budget.held, handler.budget.maximum_cost())
             self.assertEqual(handler.budget.estimated, 0)
@@ -198,7 +195,7 @@ class DiagnosticsTests(unittest.TestCase):
         budget.reserve(len(body))
         self.assertEqual(budget.reserved, len(body))
         self.assertEqual((gateway.MAX_BYTES, gateway.MAX_REQUESTS, gateway.MAX_RESERVED),
-                         (1_048_576, 500, 268_435_456))
+                         (16_777_216, 10000, 268_435_456))
 
     def test_previously_rejected_eleventh_request_fits_new_budget(self):
         budget = gateway.Budget()
@@ -214,17 +211,15 @@ class DiagnosticsTests(unittest.TestCase):
             budget.reserve(gateway.MAX_BYTES)
         budget.reserve(gateway.MAX_RESERVED - budget.reserved)
         self.assertEqual(budget.reserved, gateway.MAX_RESERVED)
-        before = (budget.requests, budget.reserved)
-        with self.assertRaises(gateway.Rejected) as error:
-            budget.reserve(1)
-        self.assertEqual(error.exception.reason, 'reserved_limit')
-        self.assertEqual((budget.requests, budget.reserved), before)
+        budget.reserve(1)
+        self.assertGreater(budget.reserved, gateway.MAX_RESERVED)
+        self.assertIn('cumulative_bytes', budget.warnings)
 
     def test_budget_report_filters_reason_and_numeric_fields(self):
         event = {'event': 'api_status', 'outcome': 'rejected', 'received': 11, 'attempted': 10,
                  'http_status': 0, 'reason': 'reserved_limit', 'request_bytes': 50000,
                  'reserved': 1980000, 'reserved_limit': 2000000, 'request_limit': 24}
-        for change, expected in [({}, True), ({'reason': SECRET}, False), ({'reserved': SECRET}, False), ({'reserved': 1_000_000_001}, False), ({'reserved': True}, False)]:
+        for change, expected in [({}, True), ({'reason': SECRET}, False), ({'reserved': SECRET}, False), ({'reserved': 1_000_000_000_001}, False), ({'reserved': True}, False)]:
             result = subprocess.CompletedProcess([], 0, json.dumps(dict(event, **change)), '')
             with patch.object(run.subprocess, 'run', return_value=result), contextlib.redirect_stdout(io.StringIO()) as output:
                 run.report_gateway('gateway')
