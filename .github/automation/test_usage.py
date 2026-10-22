@@ -80,7 +80,7 @@ class UsageTests(unittest.TestCase):
         self.assertEqual(value['summary']['cache_usage_unknown'], 1)
         self.assertEqual(value['summary']['output_truncations'], 1)
         self.assertEqual(value['outcome'], 'proposal_ready')
-        self.assertEqual(value['limits']['requests'], 500)
+        self.assertEqual(value['limits']['requests'], 10000)
         self.assertEqual(value['limits']['context_tokens'], 1_000_000)
 
     def test_failure_artifact_records_limit_without_raw_error(self):
@@ -95,7 +95,7 @@ class UsageTests(unittest.TestCase):
         self.assertEqual(report['summary']['usage_unknown'], 500)
         self.assertIsNone(report['summary']['prompt_tokens'])
         self.assertEqual(report['outcome'], 'failed')
-        self.assertEqual(report['limits']['requests'], 500)
+        self.assertEqual(report['limits']['requests'], 10000)
 
     def test_unavailable_diagnostics_still_writes_failure_artifact(self):
         with tempfile.TemporaryDirectory() as root, patch.object(run.subprocess, 'run', side_effect=OSError(SECRET)), contextlib.redirect_stdout(io.StringIO()):

@@ -28,6 +28,8 @@ jobs:
         run: python3 -B -m unittest discover -s .github/automation -p 'test_*.py' -v
       - name: Build pinned agent tools without secrets
         run: docker build -f .github/automation/Dockerfile -t latch-agent .
+      - name: Build trusted API gateway without secrets
+        run: docker build -f .github/automation/Dockerfile.gateway -t latch-gateway .
       - name: Verify pinned tools
         run: |
           docker run --rm --network none --entrypoint sh latch-agent -c 'node --version && pnpm --version && opencode --version'

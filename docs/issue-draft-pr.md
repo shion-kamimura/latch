@@ -42,17 +42,47 @@ python3 -B -m unittest discover -s .github/automation -p 'test_*.py' -v
 
 ## API制限と診断
 
-キーを持つ中継は固定DeepSeek APIだけへ接続し、リダイレクト・任意URL・任意モデルを許可しません。AIはinternal networkから中継へだけ接続します。モデルは `deepseek-flash`、thinking無効、出力8,192 tokens、context 1,000,000 tokensです。
+キーを持つ中継は固定DeepSeek APIだけへ接続し、リダイレクト・任意URL・任意モデルを許可しません。AIはinternal networkから中継へだけ接続します。信頼したbaseの `Dockerfile.gateway` が固定したtransformers / tokenizersを導入します。候補のイメージやPythonを中継へ適用しません。
 
-| 項目     | 初期値                            |
-| -------- | --------------------------------- |
-| API要求  | 500回                             |
-| 単発JSON | 1 MiB                             |
-| 累積JSON | 256 MiB                           |
-| 推定費用 | 実行ごと5 USD（未精算予約を含む） |
-| AI時間   | 60分                              |
+| 項目                 | 初期値                                    |
+| -------------------- | ----------------------------------------- |
+| 推定費用             | 実行ごと5 USD（未精算予約を含む）         |
+| AI時間               | 60分                                      |
+| API要求              | 異常反復の最終停止10,000回                |
+| 単発JSON / 応答      | 各16 MiB（メモリ保護）                    |
+| 累積JSON             | 256 MiB到達で警告、超過だけでは停止しない |
+| モデルcontext / 出力 | 1,000,000 / 8,192 tokens                  |
+| thinking             | disabled（初期値）                        |
 
-80%到達を警告します。送信前に最大contextと最大出力をピーク単価で予約し、usage取得後に精算します。欠測・送信後の不明な課金は予約を保持します。初期単価は100万tokensあたり入力hit 0.006 / miss 0.3 / 出力1.2 USDです。`LATCH_COST_CONFIG` は信頼したホスト設定のみで、`limit_usd`、`hit_usd_per_million`、`miss_usd_per_million`、`output_usd_per_million`の正の有限値を検証します。請求額の厳密保証ではありません。#28 / PR #29で採用したこの方式は #38で追加見直しします。
+10,000回は旧500回の20倍で、60分全体に平均約2.8要求/秒が必要な最終ストッパーです。通常の146回程度の反復を回数だけで止めません。単発上限は1M contextの多言語・tool定義を収めやすい16 MiBへ広げ、応答も別に16 MiBで制限します。あらゆる正当な入力サイズの保証ではなく、メモリ保護の上限です。費用・時間は増やしません。#28 / PR #29の累積JSONハード停止・全要求の最大context予約は #38で見直しました。
+
+送信前の予約は、利用できる場合、次の根拠に基づきます。
+
+1. 運用者が固定・互換性確認した公式tokenizerとchat templateで、messages、roles、tools、生成prefix、thinking設定を含めて計測する。
+2. 完全に同一の正規化した要求を以前送信済みなら、そのAPIが報告したprompt_tokensを再利用する。本文そのものは保存せずSHA256と数値だけ保持する。
+3. tokenizer未設定・非対応・計測不能なら、モデル最大contextを全cache missとして予約する。根拠のないbytes/token換算を使わない。
+
+初期料金は100万tokensあたり入力hit 0.006 / miss 0.3 / 出力1.2 USDです。計測した入力と設定された最大出力をピーク単価で予約し、usage取得後に精算します。計測とAPI usageが食い違った場合は観測費用へ精算して以後の送信を停止します。API aliasやprovider内部templateの変更まで固定できないため、**推定額の停止条件であり請求額の厳密保証ではありません**。
+
+tokenizerは既定では未配置です。運用者は対象aliasと互換性を確認した公式snapshotをホストへ準備し、`LATCH_TOKENIZER_DIRECTORY` と `LATCH_TOKENIZER_SHA256` を設定します。fingerprintは全通常ファイルを相対パス順に、パスUTF-8＋NUL＋内容をSHA256へ順次入力した値です。symlink・各64 MiB超を拒否し、read-onlyで中継だけへmountします。`local_files_only=True`、`trust_remote_code=False`で読み込み、リポジトリ候補やIssueからtokenizerやtemplateを取得しません。実モデルとの互換性・公式artifact選定は今回未検証です。未配置時は保守的な最大context予約へ戻るため、異なる小要求の予約削減はtokenizer導入後に確認が必要です。
+
+usage欠測、不正応答、送信後timeout、HTTP 5xx、不明な通信失敗は予約を保持します。認証・入力・レート制限のHTTP 400/401/403/404/422/429、およびDNS失敗・connection refusedはcompletion前の拒否として予約を解放します。送信試行数・通信量は観測として残します。欠測を無料と扱いません。
+
+`LATCH_COST_CONFIG` は信頼したホスト設定のみで、`limit_usd`、`hit_usd_per_million`、`miss_usd_per_million`、`output_usd_per_million`を検証します。`LATCH_MODEL_CONFIG`も信頼したホストだけが設定し、次の初期値を使います。
+
+```json
+{
+  "model": "deepseek-flash",
+  "context_tokens": 1000000,
+  "output_tokens": 8192,
+  "thinking": "disabled",
+  "requests": 10000
+}
+```
+
+context・出力は上表のモデル上限以内、thinkingはenabled / disabled、回数は100〜100,000の整数を検証します。任意モデル・URL・単価・費用増額をAIのリクエストから受け付けません。モデル機能・出力と費用の境界を分けます。数値・累積量・予約費用の80%到達は警告で、回数・単発・費用・時間のハード停止とは区別します。
+
+診断には適用モデル設定、count_basis（tokenizer / identical_request_usage / model_context_fallback）、usage、推定費用、未精算予約、警告、停止理由を記録します。モック比較ではusage欠測の小要求100件に対し、旧最大context予約は16件で停止、計測入力20 tokensの新予約は100件継続し、不明費用の予約も保持しました。累積300 MiBも費用内で継続します。この比較はtokenizerの実モデル互換性や実API完了率の確認ではありません。
 
 API失敗は `configuration_error`、`model_configuration_error`、`api_error`、`timeout`、`abnormal_exit`等の固定ラベルで報告します。中継はHTTP statusと回数・usage・推定費用・未精算予約・警告を記録します。認証情報、送受信本文、生transcript、例外詳細は公開しません。`diagnostics_available=false`やusageのnullは不明であり、使用量ゼロを意味しません。OpenCodeの自動圧縮・pruningを有効にし、取得できた件数だけ記録します。
 
