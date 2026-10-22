@@ -4,5 +4,6 @@ import { getHelp } from '../../src/help.js';
 test('help describes usage and the current feature scope', () => {
   expect(getHelp()).toContain('Usage: latch [options]');
   expect(getHelp()).toContain('--help');
+  expect(getHelp()).toContain('-v, --version');
   expect(getHelp()).toContain('not implemented yet');
 });
