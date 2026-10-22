@@ -11,7 +11,7 @@ MODEL = 'deepseek-flash'
 MAX_REQUESTS = 24
 MAX_BYTES = 120_000
 MAX_OUTPUT = 4096
-MAX_RESERVED = 500_000
+MAX_RESERVED = 2_000_000
 
 
 class Rejected(ValueError):
