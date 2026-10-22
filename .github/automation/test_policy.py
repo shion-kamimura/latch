@@ -107,6 +107,7 @@ class PolicyTests(unittest.TestCase):
             with self.subTest(changed_issue=changed_issue), tempfile.TemporaryDirectory() as root:
                 Path(root, 'issue.json').write_text(json.dumps(request()))
                 Path(root, 'proposal.json').write_text(json.dumps({
+                    'pr_title': 'feat: 要求と変更可能範囲を検査する',
                     'files': [{'path': 'src/a.ts', 'content': 'x'}],
                     'checks': dict.fromkeys(run.CHECKS, 0)}))
                 def api(method, path, data=None):
@@ -128,6 +129,7 @@ class PolicyTests(unittest.TestCase):
             data = request(True)
             Path(root, 'issue.json').write_text(json.dumps(data))
             Path(root, 'proposal.json').write_text(json.dumps({
+                'pr_title': 'docs: 開発ルールを明文化する',
                 'files': [{'path': 'AGENTS.md', 'content': 'Reviewed proposal'}],
                 'checks': dict.fromkeys(run.CHECKS + [policy.AUTOMATION_CHECK], 0)}))
             writes = []

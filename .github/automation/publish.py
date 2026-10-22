@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 
 from run import CHECKS
-from policy import AUTOMATION_CHECK, PolicyError, report, validate_files, validate_issue, validate_request
+from policy import AUTOMATION_CHECK, PolicyError, report, validate_files, validate_issue, validate_pr_title, validate_request
 
 
 def validate(proposal, maintenance=False):
@@ -75,6 +75,7 @@ def main():
         return
     if api('GET', '/git/ref/heads/main')['object']['sha'] != base:
         raise ValueError('main changed during implementation; rerun from the current main')
+    title = validate_pr_title(proposal.get('pr_title'))
     body = pr_body(request, files)
     policy_report = report(request, files, body)
     print('stage=repository_policy status=' + policy_report['status'] + ' semantic_scope=unverified')
@@ -82,7 +83,7 @@ def main():
         'base_tree': api('GET', f'/git/commits/{base}')['tree']['sha'],
         'tree': [dict(path=item['path'], mode='100644', type='blob',
                       **({'sha': None} if item['content'] is None else {'content': item['content']})) for item in files]})
-    message = f'feat: implement requested changes\n\nCloses #{number}\n\nLatch automated proposal'
+    message = f'{title}\n\nCloses #{number}\n\nLatch automated proposal'
     commit = api('POST', '/git/commits', {'message': message, 'tree': tree['sha'], 'parents': [base]})
     try:
         ref = api('GET', '/git/ref/heads/' + branch)
@@ -96,7 +97,7 @@ def main():
         if old['tree']['sha'] != tree['sha'] or old['message'] != message or [p['sha'] for p in old['parents']] != [base]:
             raise ValueError('Existing automation branch differs; inspect manually before retrying')
     result = api('POST', '/pulls', {'head': branch, 'base': 'main', 'draft': True,
-                                   'title': f'feat: implement Issue #{number}', 'body': body})
+                                   'title': title, 'body': body})
     print('Draft PR: ' + result['html_url'])
 
 

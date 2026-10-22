@@ -14,7 +14,7 @@ import time
 import uuid
 
 from gateway import MAX_BYTES, MAX_CONTEXT, MAX_OUTPUT, MAX_REQUESTS, MAX_RESERVED, cost_config
-from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_request
+from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_pr_title, validate_request
 
 AGENT_TIMEOUT = 3600
 
@@ -365,7 +365,33 @@ def agent_prompt(request):
             'Run pnpm lint, pnpm typecheck, pnpm format:check, pnpm test, pnpm build; repair failures. '
             'For automation changes also run python3 -B -m unittest discover -s .github/automation -p "test_*.py". '
             'Keep pnpm test ordering unchanged. The host independently verifies final files using trusted base policy. '
+            'After implementation and tests, write dist/latch-pr-title.json as a JSON object with only the title key. '
+            'This ignored build artifact is proposal metadata, not a source change. '
+            'Choose a PR title describing the actual primary change: <type>: <specific change>. '
+            'Use feat (new behavior), fix (bug repair), docs (documentation), refactor (structure without behavior changes), '
+            'test (tests), ci (CI), or chore (development tooling/maintenance). '
+            'Examples: docs: Issue登録時の追加承認を不要にする; fix: 未対応引数で終了コード1を返す; '
+            'feat: PRの要件を抽出する. Do not default to feat for documentation or bug fixes. '
+            'Use one line, at most 256 characters, no control characters, and a nonempty description. '
+            'Do not use implement Issue #number or an Issue number alone as the description. '
+            'Link the Issue in the PR body; its number is not required in the title. '
             'Passing tests does not prove semantic Issue scope or approval compliance; leave these to human review.')
+
+
+def read_pr_title(work):
+    # dist is already ignored by source snapshots; no additional writable mount or allowed path.
+    directory = work / 'dist'
+    path = directory / 'latch-pr-title.json'
+    if (directory.is_symlink() or path.is_symlink() or not path.is_file()
+            or path.stat().st_size > 4096):
+        raise PolicyError('invalid_pr_title')
+    try:
+        metadata = json.loads(path.read_text(encoding='utf-8'))
+    except (ValueError, OSError):
+        raise PolicyError('invalid_pr_title') from None
+    if not isinstance(metadata, dict) or set(metadata) != {'title'}:
+        raise PolicyError('invalid_pr_title')
+    return validate_pr_title(metadata['title'])
 
 
 def automation_command(work, control, name):
@@ -470,6 +496,7 @@ def main():
                 print('No source changes; no PR will be created.')
                 (output / 'proposal.json').write_text(json.dumps({'files': [], 'checks': {}}))
                 return
+            pr_title = read_pr_title(work)
             # Never reuse dependencies modified by the agent.
             dependencies = work / 'node_modules'
             if dependencies.is_symlink():
@@ -507,7 +534,7 @@ def main():
             # Tests cannot silently edit the submitted source after verification.
             if snapshot(work) != generated:
                 raise ValueError('Verification modified source; refusing to publish')
-            (output / 'proposal.json').write_text(json.dumps({'files': files, 'checks': checks}))
+            (output / 'proposal.json').write_text(json.dumps({'files': files, 'checks': checks, 'pr_title': pr_title}))
             outcome = 'proposal_ready'
             print('All independent checks passed; proposal ready.')
         except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
