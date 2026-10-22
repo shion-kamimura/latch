@@ -14,6 +14,12 @@ MAX_OUTPUT = 4096
 MAX_RESERVED = 500_000
 
 
+class Rejected(ValueError):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
 class Budget:
     def __init__(self):
         self.requests = 0
@@ -23,8 +29,12 @@ class Budget:
         # UTF-8 bytes plus output allowance conservatively bounds ordinary text
         # usage; this is an operational limit, not an exact currency budget.
         amount = size + MAX_OUTPUT
-        if size > MAX_BYTES or self.requests >= MAX_REQUESTS or self.reserved + amount > MAX_RESERVED:
-            raise ValueError('API budget exhausted or request too large')
+        if size > MAX_BYTES:
+            raise Rejected('request_too_large')
+        if self.requests >= MAX_REQUESTS:
+            raise Rejected('request_limit')
+        if self.reserved + amount > MAX_RESERVED:
+            raise Rejected('reserved_limit')
         self.requests += 1
         self.reserved += amount
 
@@ -41,7 +51,7 @@ def prepare_request(raw):
         'max_tokens': MAX_OUTPUT,
         'stream': False,
         'thinking': {'type': 'disabled'},
-    }).encode()
+    }, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
 
 
 def stream_response(data):
@@ -67,11 +77,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
     attempted = 0
 
     @classmethod
-    def status(cls, outcome, http_status=0):
+    def status(cls, outcome, http_status=0, reason='none', request_bytes=0):
         # Never include URLs, headers, exception strings, or request/response bodies.
         print(json.dumps({'event': 'api_status', 'outcome': outcome,
                           'received': cls.received, 'attempted': cls.attempted,
-                          'http_status': http_status}), flush=True)
+                          'http_status': http_status, 'reason': reason,
+                          'request_bytes': request_bytes, 'reserved': cls.budget.reserved,
+                          'reserved_limit': MAX_RESERVED, 'request_limit': MAX_REQUESTS}), flush=True)
 
     def log_message(self, *_args):
         pass
@@ -93,16 +105,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         type(self).received += 1
         if self.path != '/v1/chat/completions':
-            self.status('rejected')
+            self.status('rejected', reason='unsupported_endpoint')
             self.reply(404, {'error': 'Unsupported endpoint'})
             return
         try:
             size = int(self.headers.get('Content-Length', '0'))
             if size <= 0 or size > MAX_BYTES:
-                raise ValueError('Invalid request size')
+                raise Rejected('invalid_request_size')
             raw = self.rfile.read(size)
             body = prepare_request(raw)
-            self.budget.reserve(len(body))
+            try:
+                self.budget.reserve(len(body))
+            except Rejected as error:
+                self.status('rejected', reason=error.reason, request_bytes=len(body))
+                self.reply(400, {'error': error.reason})
+                return
             request = urllib.request.Request(
                 'https://api.deepseek.com/chat/completions', data=body,
                 headers={'Authorization': 'Bearer ' + os.environ['DEEPSEEK_API_KEY'],
@@ -112,7 +129,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 def redirect_request(self, *_args, **_kwargs):
                     return None
             type(self).attempted += 1
-            self.status('attempt')
+            self.status('attempt', request_bytes=len(body))
             with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
                 status = response.status
                 self.status('success', status)
@@ -144,8 +161,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             timed_out = isinstance(error.reason, TimeoutError)
             self.status('timeout' if timed_out else 'transport_error')
             self.reply(504 if timed_out else 502, {'error': 'DeepSeek connection failed'})
+        except Rejected as error:
+            self.status('rejected', reason=error.reason)
+            self.reply(400, {'error': error.reason})
         except (ValueError, KeyError, TypeError):
-            self.status('rejected')
+            self.status('rejected', reason='invalid_payload')
             self.reply(400, {'error': 'Invalid payload or API budget exhausted'})
         except Exception:
             self.status('transport_error')

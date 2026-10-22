@@ -96,7 +96,10 @@ class DiagnosticsTests(unittest.TestCase):
             with self.subTest(outcome=outcome):
                 events, handler, opener = self.request(upstream)
                 self.assertEqual(events[0], {'event': 'api_status', 'outcome': 'ready', 'received': 0,
-                                             'attempted': 0, 'http_status': 0})
+                                             'attempted': 0, 'http_status': 0, 'reason': 'none',
+                                             'request_bytes': 0, 'reserved': 0,
+                                             'reserved_limit': gateway.MAX_RESERVED,
+                                             'request_limit': gateway.MAX_REQUESTS})
                 self.assertEqual(events[1]['outcome'], 'attempt')
                 self.assertEqual(events[-1]['outcome'], outcome)
                 self.assertEqual(events[-1]['http_status'], status)
@@ -109,6 +112,56 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(events[-1]['attempted'], 0)
         opener.open.assert_not_called()
         handler.reply.assert_called_once_with(400, {'error': 'Invalid payload or API budget exhausted'})
+
+    def test_budget_rejection_reason_and_counters_never_forward_request(self):
+        for field, limit, reason in [('MAX_RESERVED', 1, 'reserved_limit'),
+                                     ('MAX_REQUESTS', 0, 'request_limit'),
+                                     ('MAX_BYTES', 1, 'invalid_request_size')]:
+            with self.subTest(reason=reason), patch.object(gateway, field, limit):
+                events, handler, opener = self.request()
+                self.assertEqual(events[-1]['reason'], reason)
+                self.assertEqual(events[-1]['attempted'], 0)
+                self.assertEqual(events[-1]['reserved'], 0)
+                opener.open.assert_not_called()
+                handler.reply.assert_called_once_with(400, {'error': reason})
+
+    def test_budget_rejects_without_changing_accounting(self):
+        budget = gateway.Budget()
+        for size, expected in [(gateway.MAX_BYTES + 1, 'request_too_large')]:
+            with self.assertRaises(gateway.Rejected) as error:
+                budget.reserve(size)
+            self.assertEqual(error.exception.reason, expected)
+        with patch.object(gateway, 'MAX_RESERVED', gateway.MAX_OUTPUT + 10):
+            budget.reserve(10)
+            with self.assertRaises(gateway.Rejected) as error:
+                budget.reserve(1)
+            self.assertEqual(error.exception.reason, 'reserved_limit')
+            self.assertEqual((budget.requests, budget.reserved), (1, gateway.MAX_OUTPUT + 10))
+
+    def test_compact_utf8_preserves_payload_and_existing_budget_limits(self):
+        payload = {'model': gateway.MODEL, 'messages': [{'role': 'user', 'content': '日本語の要件' * 100}],
+                   'tools': [{'type': 'function', 'function': {'name': 'read', 'description': '読取' * 100}}]}
+        body = gateway.prepare_request(json.dumps(payload).encode())
+        value = json.loads(body)
+        self.assertEqual(value['messages'], payload['messages'])
+        self.assertEqual(value['tools'], payload['tools'])
+        self.assertLess(len(body), len(json.dumps(value).encode()))
+        budget = gateway.Budget()
+        budget.reserve(len(body))
+        self.assertEqual(budget.reserved, len(body) + gateway.MAX_OUTPUT)
+        self.assertEqual((gateway.MAX_BYTES, gateway.MAX_REQUESTS, gateway.MAX_RESERVED),
+                         (120_000, 24, 500_000))
+
+    def test_budget_report_filters_reason_and_numeric_fields(self):
+        event = {'event': 'api_status', 'outcome': 'rejected', 'received': 11, 'attempted': 10,
+                 'http_status': 0, 'reason': 'reserved_limit', 'request_bytes': 50000,
+                 'reserved': 490000, 'reserved_limit': 500000, 'request_limit': 24}
+        for change, expected in [({}, True), ({'reason': SECRET}, False), ({'reserved': SECRET}, False)]:
+            result = subprocess.CompletedProcess([], 0, json.dumps(dict(event, **change)), '')
+            with patch.object(run.subprocess, 'run', return_value=result), contextlib.redirect_stdout(io.StringIO()) as output:
+                run.report_gateway('gateway')
+            self.assertEqual('stage=api_budget reason=reserved_limit' in output.getvalue(), expected)
+            self.assertNotIn(SECRET, output.getvalue())
 
     def test_gateway_report_only_emits_allowlisted_fields(self):
         events = [SECRET, json.dumps({'event': 'api_status', 'received': 1, 'attempted': 1,

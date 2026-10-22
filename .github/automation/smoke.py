@@ -17,6 +17,7 @@ def main():
     server, agent = name + '-api', name + '-agent'
     mock = '''
 const http = require('node:http');
+let turn = 0;
 http.createServer((req, res) => {
   console.log(req.url === '/v1/chat/completions' ? 'mock_request=chat' : 'mock_request=unsupported');
   if (req.url !== '/v1/chat/completions') { res.writeHead(404); res.end(); return; }
@@ -26,7 +27,20 @@ http.createServer((req, res) => {
     const data = JSON.parse(raw);
     if (data.model !== 'deepseek-flash') { res.writeHead(400); res.end(); return; }
     console.log('mock_model=accepted');
-    const choice = {index: 0, message: {role: 'assistant', content: 'smoke-ok'}, finish_reason: 'stop'};
+    // Exercise the actual tools; a text-only mock cannot detect permission typos.
+    const calls = [
+      {name: 'bash', arguments: {command: 'printf smoke-command > /work/command.txt', description: 'Create smoke marker'}},
+      {name: 'read', arguments: {filePath: '/work/note.txt'}},
+      {name: 'edit', arguments: {filePath: '/work/note.txt', oldString: 'before', newString: 'after'}},
+    ];
+    // OpenCode also makes title/summary requests without tools. Those must not
+    // consume a step in the agent's deterministic tool conversation.
+    const isAgent = Array.isArray(data.tools) && data.tools.some(item => item.function?.name === 'read');
+    const tool = isAgent ? calls[turn++] : null;
+    const message = tool ? {role: 'assistant', content: null, tool_calls: [{id: 'call-' + turn,
+      type: 'function', function: {name: tool.name, arguments: JSON.stringify(tool.arguments)}}]} :
+      {role: 'assistant', content: 'smoke-ok'};
+    const choice = {index: 0, message, finish_reason: tool ? 'tool_calls' : 'stop'};
     if (!data.stream) {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({id: 'mock', object: 'chat.completion', created: 0,
@@ -34,9 +48,11 @@ http.createServer((req, res) => {
       return;
     }
     res.setHeader('Content-Type', 'text/event-stream');
-    for (const delta of [{role: 'assistant', content: 'smoke-ok'}, {}]) {
+    const first = {...message};
+    if (first.tool_calls) first.tool_calls = first.tool_calls.map((call, index) => ({...call, index}));
+    for (const [delta, finish] of [[first, null], [{}, choice.finish_reason]]) {
       res.write('data: ' + JSON.stringify({id: 'mock', object: 'chat.completion.chunk', created: 0,
-        model: 'deepseek-flash', choices: [{index: 0, delta, finish_reason: delta.content ? null : 'stop'}]}) + '\\n\\n');
+        model: 'deepseek-flash', choices: [{index: 0, delta, finish_reason: finish}]}) + '\\n\\n');
     }
     res.end('data: [DONE]\\n\\n');
   });
@@ -50,8 +66,9 @@ http.createServer((req, res) => {
                 '--security-opt=no-new-privileges', '--read-only', 'latch-agent',
                 'node', '-e', mock, stdout=subprocess.DEVNULL)
         with tempfile.TemporaryDirectory() as work:
-            Path(work, 'AGENTS.md').write_text('Reply smoke-ok without tools.\n')
-            Path(work, 'issue.json').write_text(json.dumps({'title': 'Reply smoke-ok without tools.'}))
+            Path(work, 'AGENTS.md').write_text('Use bash, read, and edit as requested, then reply smoke-ok.\n')
+            Path(work, 'issue.json').write_text(json.dumps({'title': 'Exercise tools and reply smoke-ok.'}))
+            Path(work, 'note.txt').write_text('before\n')
             result = command('run', '--name', agent, '--network', name,
                 *RUNTIME_ENV,
                 '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
@@ -65,12 +82,24 @@ http.createServer((req, res) => {
                 '-e', 'OPENCODE_DISABLE_AUTOUPDATE=true',
                 'latch-agent', 'opencode', 'run', '--format', 'json',
                 '--model', 'deepseek/deepseek-flash', '--file', '/work/issue.json',
-                '--', 'Reply smoke-ok without tools.',
+                '--', 'Exercise bash, read, and edit, then reply smoke-ok.',
                 capture_output=True, text=True, timeout=120)
             events = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
             if any(event.get('type') == 'error' for event in events) or 'smoke-ok' not in result.stdout:
                 raise SystemExit('OpenCode mock smoke test failed')
-            print('Pinned OpenCode completed an offline mock request successfully.')
+            if (not Path(work, 'command.txt').is_file() or
+                    Path(work, 'command.txt').read_text() != 'smoke-command' or
+                    Path(work, 'note.txt').read_text() != 'after\n'):
+                print('Mock tool files: command_created=' + str(Path(work, 'command.txt').is_file()) +
+                      ' edit_completed=' + str(Path(work, 'note.txt').read_text() == 'after\n'), flush=True)
+                for event in events:
+                    part = event.get('part', {})
+                    if isinstance(part, dict) and part.get('tool') in {'bash', 'read', 'edit'}:
+                        state = part.get('state', {})
+                        if isinstance(state, dict) and state.get('status') in {'completed', 'error'}:
+                            print('Mock tool=' + part['tool'] + ' status=' + state['status'], flush=True)
+                raise SystemExit('OpenCode mock tool execution failed')
+            print('Pinned OpenCode completed mock API calls and bash/read/edit successfully.')
         command('rm', '-f', agent, stdout=subprocess.DEVNULL)
         # Exercise the same copied dependency layout and offline checks used by
         # the real orchestrator, on the trusted PR snapshot without credentials.
