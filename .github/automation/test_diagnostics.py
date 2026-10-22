@@ -56,7 +56,7 @@ class DiagnosticsTests(unittest.TestCase):
     def test_agent_timeout_has_safe_stage(self):
         with tempfile.TemporaryDirectory() as root, patch.object(run.subprocess, 'run',
                 side_effect=subprocess.TimeoutExpired(['opencode', SECRET], 1200, SECRET, SECRET)):
-            with self.assertRaisesRegex(ValueError, '^stage=opencode_run error=timeout limit_seconds=1800$'):
+            with self.assertRaisesRegex(ValueError, '^stage=opencode_run error=timeout limit_seconds=3600$'):
                 run.run_agent(['opencode'], Path(root, 'log'))
 
     def request(self, upstream=None, payload=None, reset=True):
@@ -81,7 +81,7 @@ class DiagnosticsTests(unittest.TestCase):
             gateway.Handler.status('ready')
             handler.do_POST()
         self.assertNotIn(SECRET, output.getvalue())
-        return [json.loads(line) for line in output.getvalue().splitlines()], handler, opener
+        return [json.loads(line) for line in output.getvalue().splitlines() if json.loads(line)['event'] == 'api_status'], handler, opener
 
     def test_gateway_records_attempt_and_http_status_without_body(self):
         cases = [
@@ -101,27 +101,28 @@ class DiagnosticsTests(unittest.TestCase):
                                              'request_bytes': 0, 'reserved': 0,
                                              'reserved_limit': gateway.MAX_RESERVED,
                                              'request_limit': gateway.MAX_REQUESTS})
-                self.assertEqual(events[1]['outcome'], 'attempt')
                 statuses = [event for event in events if event['event'] == 'api_status']
+                self.assertEqual(statuses[1]['outcome'], 'attempt')
                 self.assertEqual(statuses[-1]['outcome'], outcome)
                 self.assertEqual(statuses[-1]['http_status'], status)
                 self.assertEqual(statuses[-1]['attempted'], 1)
                 self.assertEqual(opener.open.call_args.kwargs['timeout'], 120)
 
-    def test_request_limit_allows_150_attempts_then_rejects_without_spending(self):
+    def test_request_limit_allows_500_attempts_then_rejects_without_spending(self):
+        pricing = dict(gateway.DEFAULT_COST_CONFIG, limit_usd='1000')
         for upstream, outcome in [
                 (None, 'success'),
                 (urllib.error.HTTPError('https://private', 429, SECRET, {}, None), 'http_error'),
                 (TimeoutError(SECRET), 'timeout')]:
-            with self.subTest(outcome=outcome):
+            with self.subTest(outcome=outcome), patch.object(gateway, 'DEFAULT_COST_CONFIG', pricing):
                 reserved = 0
-                for attempt in range(1, 151):
+                for attempt in range(1, 501):
                     events, handler, opener = self.request(upstream, reset=attempt == 1)
                     opener.open.assert_called_once()
                     statuses = [event for event in events if event['event'] == 'api_status']
                     self.assertEqual(statuses[-1]['outcome'], outcome)
                     self.assertEqual(statuses[-1]['attempted'], attempt)
-                    self.assertEqual(statuses[-1]['request_limit'], 150)
+                    self.assertEqual(statuses[-1]['request_limit'], 500)
                     self.assertEqual(handler.budget.requests, attempt)
                     reserved += len(opener.open.call_args.args[0].data)
                     self.assertEqual(handler.budget.reserved, reserved)
@@ -129,9 +130,9 @@ class DiagnosticsTests(unittest.TestCase):
                 events, handler, opener = self.request(upstream, reset=False)
                 opener.open.assert_not_called()
                 self.assertEqual(events[-1]['reason'], 'request_limit')
-                self.assertEqual(events[-1]['request_limit'], 150)
-                self.assertEqual(events[-1]['received'], 151)
-                self.assertEqual(events[-1]['attempted'], 150)
+                self.assertEqual(events[-1]['request_limit'], 500)
+                self.assertEqual(events[-1]['received'], 501)
+                self.assertEqual(events[-1]['attempted'], 500)
                 self.assertEqual(events[-1]['reserved'], reserved)
                 self.assertEqual((handler.budget.requests, handler.budget.reserved, handler.attempted), before)
                 handler.reply.assert_called_once_with(400, {'error': 'request_limit'})
@@ -168,6 +169,23 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertEqual(error.exception.reason, 'reserved_limit')
             self.assertEqual((budget.requests, budget.reserved), (1, 10))
 
+    def test_cost_rejection_never_attempts_upstream(self):
+        pricing = dict(gateway.DEFAULT_COST_CONFIG, limit_usd='0.1')
+        with patch.object(gateway, 'DEFAULT_COST_CONFIG', pricing):
+            events, handler, opener = self.request()
+        self.assertEqual(events[-1]['reason'], 'cost_limit')
+        self.assertEqual((handler.budget.requests, handler.budget.reserved), (0, 0))
+        opener.open.assert_not_called()
+        handler.reply.assert_called_once_with(400, {'error': 'cost_limit'})
+
+    def test_transport_errors_and_invalid_responses_keep_monetary_reservation(self):
+        for response in [TimeoutError(SECRET), SECRET.encode(),
+                         urllib.error.HTTPError('https://private', 429, SECRET, {}, None)]:
+            events, handler, _ = self.request(response)
+            self.assertEqual(handler.budget.held, handler.budget.maximum_cost())
+            self.assertEqual(handler.budget.estimated, 0)
+            self.assertEqual(events[-1]['attempted'], 1)
+
     def test_compact_utf8_preserves_payload_and_existing_budget_limits(self):
         payload = {'model': gateway.MODEL, 'messages': [{'role': 'user', 'content': '日本語の要件' * 100}],
                    'tools': [{'type': 'function', 'function': {'name': 'read', 'description': '読取' * 100}}]}
@@ -180,7 +198,7 @@ class DiagnosticsTests(unittest.TestCase):
         budget.reserve(len(body))
         self.assertEqual(budget.reserved, len(body))
         self.assertEqual((gateway.MAX_BYTES, gateway.MAX_REQUESTS, gateway.MAX_RESERVED),
-                         (524_288, 150, 33_554_432))
+                         (1_048_576, 500, 268_435_456))
 
     def test_previously_rejected_eleventh_request_fits_new_budget(self):
         budget = gateway.Budget()
@@ -206,7 +224,7 @@ class DiagnosticsTests(unittest.TestCase):
         event = {'event': 'api_status', 'outcome': 'rejected', 'received': 11, 'attempted': 10,
                  'http_status': 0, 'reason': 'reserved_limit', 'request_bytes': 50000,
                  'reserved': 1980000, 'reserved_limit': 2000000, 'request_limit': 24}
-        for change, expected in [({}, True), ({'reason': SECRET}, False), ({'reserved': SECRET}, False), ({'reserved': 100_000_001}, False), ({'reserved': True}, False)]:
+        for change, expected in [({}, True), ({'reason': SECRET}, False), ({'reserved': SECRET}, False), ({'reserved': 1_000_000_001}, False), ({'reserved': True}, False)]:
             result = subprocess.CompletedProcess([], 0, json.dumps(dict(event, **change)), '')
             with patch.object(run.subprocess, 'run', return_value=result), contextlib.redirect_stdout(io.StringIO()) as output:
                 run.report_gateway('gateway')

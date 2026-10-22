@@ -1,6 +1,7 @@
 """Key-bearing API boundary. Never mount this container into the agent."""
 
 import http.server
+from decimal import Decimal, InvalidOperation
 import json
 import os
 import socket
@@ -9,11 +10,31 @@ import urllib.error
 import urllib.request
 
 MODEL = 'deepseek-flash'
-MAX_REQUESTS = 150
-MAX_BYTES = 512 * 1024
+MAX_REQUESTS = 500
+MAX_BYTES = 1024 * 1024
 MAX_OUTPUT = 8192
-MAX_RESERVED = 32 * 1024 * 1024
-MAX_CONTEXT = 131072
+MAX_RESERVED = 256 * 1024 * 1024
+# Official model specification checked 2026-10-22 (see docs).
+MAX_CONTEXT = 1_000_000
+DEFAULT_COST_CONFIG = {'limit_usd': '5', 'hit_usd_per_million': '0.006',
+                       'miss_usd_per_million': '0.3', 'output_usd_per_million': '1.2'}
+
+
+def cost_config(raw=None):
+    """Trusted operator configuration only; never read client parameters."""
+    try:
+        values = DEFAULT_COST_CONFIG if raw is None else json.loads(raw)
+        if not isinstance(values, dict) or set(values) != set(DEFAULT_COST_CONFIG):
+            raise ValueError
+        result = {key: Decimal(str(value)) for key, value in values.items()}
+        if any(not value.is_finite() or not Decimal('0') < value <= Decimal('1000000')
+               for value in result.values()):
+            raise ValueError
+        if result['hit_usd_per_million'] > result['miss_usd_per_million']:
+            raise ValueError
+        return result
+    except (ValueError, TypeError, InvalidOperation):
+        raise ValueError('Invalid cost configuration') from None
 
 
 class Rejected(ValueError):
@@ -23,9 +44,58 @@ class Rejected(ValueError):
 
 
 class Budget:
-    def __init__(self):
+    def __init__(self, pricing=None):
         self.requests = 0
         self.reserved = 0
+        self.pricing = cost_config() if pricing is None else cost_config(json.dumps(pricing))
+        self.estimated = Decimal(0)
+        self.held = Decimal(0)
+        self.unsettled_requests = 0
+        self.warnings = set()
+        self.stopped = False
+
+    def maximum_cost(self):
+        # Entire published context at peak cache-miss rates; no tokenizer guess.
+        return (MAX_CONTEXT * self.pricing['miss_usd_per_million'] +
+                MAX_OUTPUT * self.pricing['output_usd_per_million']) / 1_000_000
+
+    def warn(self, name, value, limit):
+        if value * 5 >= limit * 4:
+            self.warnings.add(name)
+
+    def authorize(self, size):
+        amount = self.maximum_cost()
+        if self.stopped or self.estimated + self.held + amount > self.pricing['limit_usd']:
+            raise Rejected('cost_limit')
+        self.reserve(size)
+        self.held += amount
+        self.unsettled_requests += 1
+        self.warn('cost', self.estimated + self.held, self.pricing['limit_usd'])
+        return amount
+
+    def settle(self, record, reservation):
+        prompt, output = record['prompt_tokens'], record['completion_tokens']
+        if prompt is None or output is None:
+            return  # Ambiguous charges keep their full reservation.
+        if prompt > MAX_CONTEXT or output > MAX_OUTPUT:
+            self.stopped = True
+            return
+        hit, miss = record['cache_hit_tokens'], record['cache_miss_tokens']
+        if hit is None or miss is None:
+            hit, miss = 0, prompt
+        cost = (hit * self.pricing['hit_usd_per_million'] +
+                miss * self.pricing['miss_usd_per_million'] +
+                output * self.pricing['output_usd_per_million']) / 1_000_000
+        self.held -= reservation
+        self.unsettled_requests -= 1
+        self.estimated += cost
+        self.warn('cost', self.estimated + self.held, self.pricing['limit_usd'])
+
+    def record(self):
+        return {'event': 'api_budget', 'estimated_usd': str(self.estimated),
+                'held_usd': str(self.held), 'pricing': {key: str(value) for key, value in self.pricing.items()},
+                'warnings': sorted(self.warnings), 'accounting_exceeded': self.stopped,
+                'unsettled_requests': self.unsettled_requests}
 
     def reserve(self, size):
         # Bound cumulative outbound JSON volume, independently of token usage.
@@ -39,6 +109,9 @@ class Budget:
             raise Rejected('reserved_limit')
         self.requests += 1
         self.reserved += amount
+        self.warn('requests', self.requests, MAX_REQUESTS)
+        self.warn('cumulative_bytes', self.reserved, MAX_RESERVED)
+        self.warn('request_bytes', size, MAX_BYTES)
 
 
 def prepare_request(raw):
@@ -112,6 +185,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                           'http_status': http_status, 'reason': reason,
                           'request_bytes': request_bytes, 'reserved': cls.budget.reserved,
                           'reserved_limit': MAX_RESERVED, 'request_limit': MAX_REQUESTS}), flush=True)
+        print(json.dumps(cls.budget.record()), flush=True)
 
     def log_message(self, *_args):
         pass
@@ -143,7 +217,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raw = self.rfile.read(size)
             body = prepare_request(raw)
             try:
-                self.budget.reserve(len(body))
+                reservation = self.budget.authorize(len(body))
             except Rejected as error:
                 self.status('rejected', reason=error.reason, request_bytes=len(body))
                 self.reply(400, {'error': error.reason})
@@ -171,7 +245,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.status('invalid_response', status)
                     self.reply(502, {'error': 'Invalid upstream response'})
                     return
-            print(json.dumps(usage_record(data, (time.monotonic() - started) * 1000)), flush=True)
+            record = usage_record(data, (time.monotonic() - started) * 1000)
+            self.budget.settle(record, reservation)
+            print(json.dumps(record), flush=True)
+            print(json.dumps(self.budget.record()), flush=True)
             if json.loads(raw).get('stream'):
                 payload = stream_response(data)
                 self.send_response(200)
@@ -205,6 +282,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 if __name__ == '__main__':
     if not os.environ.get('DEEPSEEK_API_KEY'):
         raise SystemExit('DEEPSEEK_API_KEY is required')
+    Handler.budget = Budget({key: str(value) for key, value in
+                            cost_config(os.environ.get('LATCH_COST_CONFIG')).items()})
     server = http.server.HTTPServer(('0.0.0.0', 8080), Handler)
     Handler.status('ready')
     server.serve_forever()
