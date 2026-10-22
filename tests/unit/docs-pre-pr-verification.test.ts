@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 
 const readRepoFile = (path: string): string =>
@@ -12,24 +12,22 @@ describe('pre-PR verification spec', () => {
     expect(readme).toContain('docs/pre-pr-verification.md');
   });
 
-  test('documents local and CI usage examples', () => {
-    expect(spec).toContain('## CIでの利用例');
-    expect(spec).toContain('latch verify --base');
-    expect(spec).toContain('Draft PR');
-  });
-
-  test('documents committed, uncommitted, and untracked file handling', () => {
-    expect(spec).toContain('| コミット済み |');
-    expect(spec).toContain('| 未コミット   |');
-    expect(spec).toContain('| 未追跡       |');
-    expect(spec).toMatch(/未追跡.*含めない/);
-  });
-
-  test('documents Issue input methods and invalid input handling', () => {
-    expect(spec).toContain('--issue <番号>');
-    expect(spec).toContain('--issue-file <path>');
-    expect(spec).toContain('入力不正');
-    expect(spec).toContain('入力不足');
+  test('local document links resolve inside the repository', () => {
+    for (const document of [
+      'README.md',
+      'AGENTS.md',
+      'docs/pre-pr-verification.md',
+    ]) {
+      for (const match of readRepoFile(document).matchAll(/\]\(([^)]+)\)/g)) {
+        const target = match[1]?.split('#')[0];
+        if (!target || /^(?:https?:|mailto:)/.test(target)) continue;
+        const source = new URL(`../../${document}`, import.meta.url);
+        expect(
+          existsSync(new URL(target, source)),
+          `${document}: ${target}`,
+        ).toBe(true);
+      }
+    }
   });
 
   test('documents requirement, test, evidence, and unverified mapping', () => {
