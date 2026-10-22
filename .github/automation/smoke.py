@@ -69,6 +69,8 @@ http.createServer((req, res) => {
             Path(work, 'AGENTS.md').write_text('Use bash, read, and edit as requested, then reply smoke-ok.\n')
             Path(work, 'issue.json').write_text(json.dumps({'title': 'Exercise tools and reply smoke-ok.'}))
             Path(work, 'note.txt').write_text('before\n')
+            command('run', '--rm', '--network', 'none', 'latch-agent',
+                    'python3', '--version', stdout=subprocess.DEVNULL)
             result = command('run', '--name', agent, '--network', name,
                 *RUNTIME_ENV,
                 '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',

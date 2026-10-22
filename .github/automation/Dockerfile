@@ -1,5 +1,5 @@
 FROM node:26.12.0-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global --allow-scripts=opencode-ai,pnpm pnpm@12.14.0 opencode-ai@1.19.3 \
     && opencode --version && pnpm --version
