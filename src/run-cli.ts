@@ -1,4 +1,5 @@
 import { getHelp } from './help.js';
+import { getVersion } from './version.js';
 
 export function runCli(
   args: readonly string[],
@@ -9,6 +10,11 @@ export function runCli(
     (args.length === 1 && (args[0] === '--help' || args[0] === '-h'))
   ) {
     io.stdout(getHelp());
+    return 0;
+  }
+
+  if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) {
+    io.stdout(`${getVersion()}\n`);
     return 0;
   }
 
