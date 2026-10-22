@@ -91,8 +91,13 @@ def validate_request(request):
         raise PolicyError('invalid_issue')
     if not isinstance(request.get('base'), str) or not re.fullmatch(r'[0-9a-f]{40}', request['base']):
         raise PolicyError('invalid_base')
-    if not isinstance(request.get('branch'), str) or not re.fullmatch(r'feat/automated-[0-9a-f]{16}', request['branch']):
+    if not isinstance(request.get('branch'), str) or not re.fullmatch(r'feat/automated-[0-9a-f]{16}(?:-r[0-9]+-a[0-9]+)?', request['branch']):
         raise PolicyError('invalid_branch')
+    for key in ['source', 'expected_head']:
+        if request.get(key) is not None and (not isinstance(request[key], str) or not re.fullmatch(r'[0-9a-f]{40}', request[key])):
+            raise PolicyError('invalid_base')
+    if 'node_id' in request and (not isinstance(request['node_id'], str) or not re.fullmatch(r'[A-Za-z0-9_=-]{1,200}', request['node_id'])):
+        raise PolicyError('invalid_issue')
     if type(request.get('allow_maintenance', False)) is not bool:
         raise PolicyError('invalid_maintenance_approval')
     if not all(isinstance(request.get(key), str) for key in ['title', 'body']):
@@ -102,10 +107,18 @@ def validate_request(request):
 def validate_issue(request, issue):
     validate_request(request)
     expected = 'feat/automated-' + hashlib.sha256(issue['node_id'].encode()).hexdigest()[:16]
-    if issue['state'] != 'open' or 'pull_request' in issue or request['branch'] != expected:
+    if ('pull_request' in issue or request['branch'].split('-r')[0] != expected
+            or request.get('node_id', issue['node_id']) != issue['node_id']):
         raise PolicyError('issue_mismatch')
-    if request['title'] != issue['title'] or request['body'] != (issue.get('body') or ''):
-        raise PolicyError('issue_changed')
+    if issue['state'] != 'open':
+        return 'closed'
+    current = (issue['title'], issue.get('body') or '')
+    original = (request['title'], request['body'])
+    if current == original:
+        return 'unchanged'
+    if tuple(' '.join(value.split()) for value in current) == tuple(' '.join(value.split()) for value in original):
+        return 'format_only'
+    return 'changed'
 
 
 def validate_files(files, maintenance=False):
@@ -157,7 +170,7 @@ def validate_files(files, maintenance=False):
 
 
 def validate_body(body, number):
-    if not isinstance(body, str) or f'Closes #{number}\n' not in body:
+    if not isinstance(body, str) or not re.search(r'^(?:Closes|Refs) #' + str(number) + r'$', body, re.MULTILINE):
         raise PolicyError('missing_issue_link')
 
 

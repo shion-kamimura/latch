@@ -103,15 +103,12 @@ class BoundaryTests(unittest.TestCase):
                         return {'state': 'open', 'node_id': 'issue-node',
                                 'title': 'Example', 'body': 'Requirements'}
                     if path.startswith('/pulls?'):
-                        return [{'number': 8}] if existing else []
+                        return [{'number': 8, 'state': 'open', 'draft': False}] if existing else []
                     return {'object': {'sha': 'b' * 40}}
                 with patch.dict(os.environ, {'REQUEST_PATH': str(request), 'OUTPUT_PATH': root,
                                              'GITHUB_REPOSITORY': 'owner/repo'}), patch.object(publish, 'api', fake_api):
-                    if existing:
+                    with self.assertRaisesRegex(ValueError, 'branch changed'):
                         publish.main()
-                    else:
-                        with self.assertRaisesRegex(ValueError, 'main changed'):
-                            publish.main()
                 self.assertTrue(all(method == 'GET' for method, _, _ in calls))
 
 

@@ -60,7 +60,11 @@ API失敗は `configuration_error`、`model_configuration_error`、`api_error`�
 
 ## 公開と失敗時の扱い
 
-同一Issueはconcurrencyで直列化します。`feat/automated-<Issue node IDのSHA-256先頭16文字>`に提案します。現段階では既存PRは更新せず、main更新時は停止します（#37で見直し）。
+同一Issueはconcurrencyで直列化します。`feat/automated-<Issue node IDのSHA-256先頭16文字>`に提案します。bot作成のDraft PRとIssue node IDの所有マーカー、bot先端コミット、prepareで観測したheadを照合し、継続をfast-forwardで反映します。ハッシュ名だけでは所有を認めません。人間のコミットが混ざった場合は、そのスナップショットを入力にした別ブランチ `-r<run ID>-a<attempt>` へ提案し、元PRを上書きしません。閉じたPR後も新しい実行サフィックスへ再提案できます。
+
+制御コードは実行開始時のmainへ固定し、継続の対象コードは既存headへ固定します。公開commitは検証した入力commitを親とするため、実行中にmainが進んでも成果を残せます。最新mainとの統合は未検証として明記し、自動rebaseによる検証結果の流用は行いません。元の要求は1日保持のrequest artifactとSHA256識別情報で追跡します。Issueの空白編集はformat_only、その他の変更は保守的にchanged、終了はclosedと記録し、後二者はClosesではなくRefsとして保存して現行要件の達成を主張しません。
+
+公開はproposal識別情報をcommitへ記録し、同じartifactによるPR API失敗後の再試行を冪等に扱います。prepareで再度権限・Issue同一性を確認し、ブランチ先端変更はforce=falseで拒否します。並行更新競合時の成果はartifactに残り、再実行で最新先端から継続します。PR作成が競合した場合は同じ所有マーカーのDraft PRを照合します。
 
 テスト失敗、環境不足、AI非ゼロ終了、タイムアウト、予算停止でも、候補コンテナ停止後に同じ安全検査を行い、安全な部分成果を提案artifactとDraft PRに残します。成功・失敗・timeout・未実行・環境不足をschema v2で区別し、実装状態も別記します。未完了時のimplementジョブは失敗のまま、publishを安全なartifactの存在で起動します。独立チェックは可能な範囲で継続します。既定test内でbuildが成功したときは重複buildを行わずcovered_by_testと記録します。PR見出しの完全一致は要求せず、Issueリンクと実結果を保持します。
 
