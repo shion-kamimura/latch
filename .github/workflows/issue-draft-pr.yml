@@ -72,6 +72,8 @@ jobs:
           path: ${{ runner.temp }}/request
       - name: Build pinned agent tools (no API key)
         run: docker build -f .github/automation/Dockerfile -t latch-agent .
+      - name: Verify OpenCode startup without secrets or network
+        run: docker run --rm --network none --cap-drop=ALL --security-opt=no-new-privileges --read-only --tmpfs /tmp:rw,nosuid,size=512m -e XDG_DATA_HOME=/tmp/xdg/data -e XDG_CONFIG_HOME=/tmp/xdg/config -e XDG_CACHE_HOME=/tmp/xdg/cache -e XDG_STATE_HOME=/tmp/xdg/state latch-agent opencode --version
       - name: Implement, repair, and independently verify in containers
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

@@ -9,7 +9,7 @@ import tempfile
 import tarfile
 import uuid
 
-from run import CHECKS, RUNTIME_ENV, agent_config
+from run import CHECKS, RUNTIME_ENV, agent_config, agent_failure
 
 
 def main():
@@ -18,16 +18,19 @@ def main():
     mock = '''
 const http = require('node:http');
 http.createServer((req, res) => {
+  console.log(req.url === '/v1/chat/completions' ? 'mock_request=chat' : 'mock_request=unsupported');
   if (req.url !== '/v1/chat/completions') { res.writeHead(404); res.end(); return; }
   let raw = '';
   req.on('data', chunk => { raw += chunk; });
   req.on('end', () => {
     const data = JSON.parse(raw);
     if (data.model !== 'deepseek-flash') { res.writeHead(400); res.end(); return; }
+    console.log('mock_model=accepted');
     const choice = {index: 0, message: {role: 'assistant', content: 'smoke-ok'}, finish_reason: 'stop'};
     if (!data.stream) {
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({id: 'mock', object: 'chat.completion', choices: [choice]}));
+      res.end(JSON.stringify({id: 'mock', object: 'chat.completion', created: 0,
+        model: 'deepseek-flash', choices: [choice], usage: {prompt_tokens: 1, completion_tokens: 1, total_tokens: 2}}));
       return;
     }
     res.setHeader('Content-Type', 'text/event-stream');
@@ -48,6 +51,7 @@ http.createServer((req, res) => {
                 'node', '-e', mock, stdout=subprocess.DEVNULL)
         with tempfile.TemporaryDirectory() as work:
             Path(work, 'AGENTS.md').write_text('Reply smoke-ok without tools.\n')
+            Path(work, 'issue.json').write_text(json.dumps({'title': 'Reply smoke-ok without tools.'}))
             result = command('run', '--name', agent, '--network', name,
                 *RUNTIME_ENV,
                 '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
@@ -60,12 +64,11 @@ http.createServer((req, res) => {
                 '-e', 'OPENCODE_DISABLE_MODELS_FETCH=true',
                 '-e', 'OPENCODE_DISABLE_AUTOUPDATE=true',
                 'latch-agent', 'opencode', 'run', '--format', 'json',
-                '--model', 'deepseek/deepseek-flash', 'Reply smoke-ok without tools.',
+                '--model', 'deepseek/deepseek-flash', '--file', '/work/issue.json',
+                '--', 'Reply smoke-ok without tools.',
                 capture_output=True, text=True, timeout=120)
             events = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
             if any(event.get('type') == 'error' for event in events) or 'smoke-ok' not in result.stdout:
-                print(result.stdout)
-                print(result.stderr)
                 raise SystemExit('OpenCode mock smoke test failed')
             print('Pinned OpenCode completed an offline mock request successfully.')
         command('rm', '-f', agent, stdout=subprocess.DEVNULL)
@@ -87,9 +90,28 @@ http.createServer((req, res) => {
                     'sh', '-c', setup + 'exec pnpm ' + check, timeout=180)
                 command('rm', '-f', agent, stdout=subprocess.DEVNULL)
     except subprocess.CalledProcessError as error:
-        print(error.stdout or '')
-        print(error.stderr or '')
-        raise
+        status = subprocess.run(['docker', 'logs', server], capture_output=True, text=True)
+        for line in status.stdout.splitlines():
+            if line in {'mock_request=chat', 'mock_request=unsupported', 'mock_model=accepted'}:
+                print(line, flush=True)
+        with tempfile.TemporaryDirectory() as diagnostic:
+            log = Path(diagnostic, 'agent.log')
+            log.write_text((error.stdout or '') + (error.stderr or ''))
+            kind = agent_failure(log, error.returncode)
+            for line in log.read_text().splitlines():
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict) and event.get('type') == 'error':
+                    detail = event.get('error')
+                    detail = detail.get('data', {}) if isinstance(detail, dict) else {}
+                    code = detail.get('statusCode') if isinstance(detail, dict) else None
+                    if type(code) is int and 100 <= code <= 599:
+                        print(f'Mock HTTP status={code}', flush=True)
+        raise SystemExit(f'Mock smoke failed; error={kind} exit_code={error.returncode}') from None
+    except subprocess.TimeoutExpired:
+        raise SystemExit('Mock smoke failed; error=timeout') from None
     finally:
         for container in [agent, server]:
             subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

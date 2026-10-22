@@ -64,6 +64,93 @@ def execute(args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+def agent_failure(log_path, returncode):
+    """Map private output to fixed labels; never return any part of a message."""
+    kind = None
+    names = {'ConfigInvalidError': 'configuration_error',
+             'ProviderModelNotFoundError': 'model_configuration_error',
+             'ProviderInitError': 'provider_initialization_error',
+             'APIError': 'api_error', 'APICallError': 'api_error'}
+    with open(log_path, errors='replace') as log:
+        for line in log:
+            # Bound parsing of untrusted transcript lines.
+            if len(line) > 100_000:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                # Some startup failures occur before JSON output is available.
+                if 'ConfigInvalidError' in line:
+                    kind = 'configuration_error'
+                continue
+            if isinstance(event, dict) and event.get('type') == 'error':
+                error = event.get('error')
+                name = error.get('name') if isinstance(error, dict) else None
+                kind = names.get(name, 'agent_error') if isinstance(name, str) else 'agent_error'
+    if kind:
+        return kind
+    if returncode in {126, 127}:
+        return 'startup_error'
+    if returncode:
+        return 'abnormal_exit'
+    return None
+
+
+def run_agent(command, log_path):
+    # Raw output stays in the temporary directory and is never uploaded.
+    with open(log_path, 'wb') as log:
+        try:
+            result = subprocess.run(command, stdout=log, stderr=log, timeout=1200)
+        except subprocess.TimeoutExpired:
+            raise ValueError('stage=opencode_run error=timeout limit_seconds=1200') from None
+    kind = agent_failure(log_path, result.returncode)
+    if kind:
+        raise ValueError(f'stage=opencode_run error={kind} exit_code={result.returncode}')
+    print('stage=opencode_run status=completed', flush=True)
+
+
+def verify_startup(command):
+    try:
+        result = subprocess.run(command, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=30)
+    except subprocess.TimeoutExpired:
+        raise ValueError('stage=opencode_startup error=timeout limit_seconds=30') from None
+    if result.returncode:
+        raise ValueError(f'stage=opencode_startup error=startup_error exit_code={result.returncode}')
+    print('stage=opencode_startup status=ready', flush=True)
+
+
+def report_gateway(gateway):
+    """Rebuild the gateway's fixed-schema counters instead of relaying Docker logs."""
+    try:
+        result = subprocess.run(['docker', 'logs', gateway], capture_output=True,
+                                text=True, timeout=10)
+        if result.returncode:
+            raise ValueError
+        found = False
+        for line in result.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict) or event.get('event') != 'api_status':
+                continue
+            fields = ['received', 'attempted', 'http_status']
+            if not all(type(event.get(key)) is int and 0 <= event[key] <= 1_000_000 for key in fields):
+                continue
+            outcome = event.get('outcome')
+            if not isinstance(outcome, str) or outcome not in {'ready', 'attempt', 'success', 'http_error', 'timeout',
+                               'transport_error', 'invalid_response', 'rejected'}:
+                continue
+            print('stage=api outcome=' + outcome + ' ' +
+                  ' '.join(f'{key}={event[key]}' for key in fields), flush=True)
+            found = True
+        if not found:
+            raise ValueError
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        print('stage=api error=diagnostics_unavailable', flush=True)
+
+
 def agent_config(gateway):
     return json.dumps({
         'model': 'deepseek/deepseek-flash', 'enabled_providers': ['deepseek'],
@@ -107,6 +194,11 @@ def main():
                   '--mount', f'type=bind,src={work},dst=/work', '-w', '/work']
         config = agent_config(gateway)
         try:
+            # Same user, read-only filesystem and tmpfs as the real agent; no API/network.
+            preflight = name + '-preflight'
+            containers.append(preflight)
+            verify_startup(['docker', 'run', '--name', preflight,
+                '--network', 'none', *common, 'latch-agent', 'opencode', '--version'])
             execute(['docker', 'network', 'create', '--internal', network], stdout=subprocess.DEVNULL)
             # Pull the trusted gateway image before introducing secrets or generated code.
             execute(['docker', 'pull', 'python:3.12.12-slim-bookworm'], stdout=subprocess.DEVNULL)
@@ -126,7 +218,7 @@ def main():
                     break
                 time.sleep(1)
             else:
-                raise ValueError('API gateway startup failed')
+                raise ValueError('stage=gateway_startup error=startup_error')
             agent = name + '-agent'
             containers.append(agent)
             prompt = ('Read AGENTS.md and follow it. Implement the attached Issue and add meaningful tests. '
@@ -142,21 +234,9 @@ def main():
                        '-e', 'OPENCODE_DISABLE_DEFAULT_PLUGINS=true',
                        '-e', 'OPENCODE_DISABLE_MODELS_FETCH=true',
                        'latch-agent', 'sh', '-c',
-                       'cp -a /opt/deps/node_modules /work/node_modules && exec opencode run --format json --model deepseek/deepseek-flash --file /input/issue.json "$1"',
+                       'cp -a /opt/deps/node_modules /work/node_modules && exec opencode run --format json --model deepseek/deepseek-flash --file /input/issue.json -- "$1"',
                        'agent', prompt]
-            # Raw AI transcript is not published: it may contain untrusted workflow commands.
-            with open(Path(temporary) / 'agent.log', 'wb') as log:
-                result = subprocess.run(command, stdout=log, stderr=log, timeout=1200)
-            if result.returncode:
-                raise ValueError(f'OpenCode exited with status {result.returncode}; see API status below')
-            with open(Path(temporary) / 'agent.log', errors='replace') as log:
-                for line in log:
-                    try:
-                        event = json.loads(line)
-                    except ValueError:
-                        continue
-                    if isinstance(event, dict) and event.get('type') == 'error':
-                        raise ValueError('OpenCode reported an error; see API status below')
+            run_agent(command, Path(temporary) / 'agent.log')
             # Stop gateway before independent checks: verification has no network/API access.
             execute(['docker', 'stop', gateway], stdout=subprocess.DEVNULL)
             generated = snapshot(work)
@@ -195,7 +275,7 @@ def main():
             (output / 'proposal.json').write_text(json.dumps({'files': files, 'checks': checks}))
             print('All independent checks passed; proposal ready.')
         finally:
-            subprocess.run(['docker', 'logs', gateway], check=False)
+            report_gateway(gateway)
             for container in containers + [gateway]:
                 subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(['docker', 'network', 'rm', network], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

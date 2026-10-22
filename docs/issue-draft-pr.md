@@ -63,3 +63,25 @@ python3 -B -m unittest discover -s .github/automation -p 'test_*.py' -v
 - [OpenCode CLI](https://opencode.ai/docs/cli/)
 - [GitHub ActionsのPR作成許可](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository)
 - [GITHUB_TOKENで発生させたイベント](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow)
+
+## OpenCode実行失敗の診断
+
+ツールのグローバルインストールでは、固定した `opencode-ai` と `pnpm` だけに npm の install script 実行を許可します。Docker build 内のバージョン確認に加え、実行前に秘密情報もネットワークも持たないコンテナで OpenCode の起動を確認します。
+
+`implement` の診断は固定した段階・エラー種別で出力します。生の OpenCode 出力、例外メッセージ、API 本文、認証ヘッダーは公開しません。未知の異常終了は `abnormal_exit` または `agent_error` になります。
+
+| ログ                                                 | 確認する内容                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------- |
+| `stage=opencode_startup error=startup_error`         | インストール・バイナリ起動の失敗                              |
+| `stage=opencode_run error=configuration_error`       | OpenCode 設定の読み込み失敗                                   |
+| `stage=opencode_run error=model_configuration_error` | プロバイダー・モデル設定                                      |
+| `stage=opencode_run error=api_error`                 | OpenCode が報告した API エラー。中継側の状態も確認            |
+| `stage=opencode_run error=timeout`                   | AI 実行の20分制限                                             |
+| `stage=api outcome=http_error ... http_status=401`   | DeepSeek が返した HTTP ステータス。401 は認証、429 は利用制限 |
+| `stage=api outcome=timeout` / `transport_error`      | 中継から DeepSeek への接続・応答待ちの失敗                    |
+| `stage=api outcome=rejected`                         | 未対応エンドポイント、不正な入力、既存の利用量上限            |
+| `stage=api error=diagnostics_unavailable`            | 中継ログを取得できず、API 利用の有無も判定不能                |
+
+`received` は中継が受信した POST 数、`attempted` は DeepSeek への送信試行数です。`attempted=0` なら外部 API 呼び出しは未試行です。送信試行は DeepSeek 側での受信を保証しません。`http_status=0` は HTTP 応答未取得、200 などの値は実際に受け取ったステータスです。`outcome=success` は HTTP 応答の受信を示し、その後の本文解釈で `invalid_response` になる場合があります。起動直後にもゼロ件の状態を出力するため、API 呼び出しがない場合と診断取得失敗を区別できます。
+
+Issue #10 の起動引数を固定バージョンで再現すると、配列引数 `--file` が後続のプロンプトもファイル名として取り込み、`File not found` で停止しました。添付ファイル指定の後に `--` を挿入してプロンプトを区切り、モック試験でも同じ添付形式を使用します。元の実行では npm の install script 未許可警告もありましたが、この警告だけが原因だと断定するものではありません。実 API を使用した元の Issue #9 の再実行は、修正を main にマージした後に行い、API 接続・実装・独立検証・Draft PR 作成まで確認してください。モック試験の成功だけでは実 API での復旧確認にはなりません。
