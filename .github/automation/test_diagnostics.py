@@ -150,18 +150,40 @@ class DiagnosticsTests(unittest.TestCase):
         budget.reserve(len(body))
         self.assertEqual(budget.reserved, len(body) + gateway.MAX_OUTPUT)
         self.assertEqual((gateway.MAX_BYTES, gateway.MAX_REQUESTS, gateway.MAX_RESERVED),
-                         (120_000, 24, 500_000))
+                         (120_000, 24, 2_000_000))
+
+    def test_previously_rejected_eleventh_request_fits_new_budget(self):
+        budget = gateway.Budget()
+        for size in [5988, 31367, 34216, 41305, 43399, 43795, 53006, 55153, 59716, 60538]:
+            budget.reserve(size)
+        self.assertEqual(budget.reserved, 469443)
+        budget.reserve(61006)
+        self.assertEqual((budget.requests, budget.reserved), (11, 534545))
+
+    def test_new_budget_stops_at_exact_limit_without_spending_on_rejection(self):
+        budget = gateway.Budget()
+        for _ in range(16):
+            budget.reserve(gateway.MAX_BYTES)
+        budget.reserve(gateway.MAX_RESERVED - budget.reserved - gateway.MAX_OUTPUT)
+        self.assertEqual(budget.reserved, 2_000_000)
+        before = (budget.requests, budget.reserved)
+        with self.assertRaises(gateway.Rejected) as error:
+            budget.reserve(1)
+        self.assertEqual(error.exception.reason, 'reserved_limit')
+        self.assertEqual((budget.requests, budget.reserved), before)
 
     def test_budget_report_filters_reason_and_numeric_fields(self):
         event = {'event': 'api_status', 'outcome': 'rejected', 'received': 11, 'attempted': 10,
                  'http_status': 0, 'reason': 'reserved_limit', 'request_bytes': 50000,
-                 'reserved': 490000, 'reserved_limit': 500000, 'request_limit': 24}
-        for change, expected in [({}, True), ({'reason': SECRET}, False), ({'reserved': SECRET}, False)]:
+                 'reserved': 1980000, 'reserved_limit': 2000000, 'request_limit': 24}
+        for change, expected in [({}, True), ({'reason': SECRET}, False), ({'reserved': SECRET}, False), ({'reserved': 2_000_001}, False), ({'reserved': True}, False)]:
             result = subprocess.CompletedProcess([], 0, json.dumps(dict(event, **change)), '')
             with patch.object(run.subprocess, 'run', return_value=result), contextlib.redirect_stdout(io.StringIO()) as output:
                 run.report_gateway('gateway')
             self.assertEqual('stage=api_budget reason=reserved_limit' in output.getvalue(), expected)
             self.assertNotIn(SECRET, output.getvalue())
+            if expected:
+                self.assertIn('reserved=1980000 reserved_limit=2000000', output.getvalue())
 
     def test_gateway_report_only_emits_allowlisted_fields(self):
         events = [SECRET, json.dumps({'event': 'api_status', 'received': 1, 'attempted': 1,

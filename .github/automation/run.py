@@ -148,7 +148,7 @@ def report_gateway(gateway):
             if isinstance(reason, str) and reason in {'none', 'unsupported_endpoint', 'invalid_request_size',
                     'invalid_payload', 'request_too_large', 'request_limit', 'reserved_limit'}:
                 numeric = ['request_bytes', 'reserved', 'reserved_limit', 'request_limit']
-                if all(type(event.get(key)) is int and 0 <= event[key] <= 1_000_000 for key in numeric):
+                if all(type(event.get(key)) is int and 0 <= event[key] <= 2_000_000 for key in numeric):
                     print('stage=api_budget reason=' + reason + ' ' +
                           ' '.join(f'{key}={event[key]}' for key in numeric), flush=True)
             found = True
