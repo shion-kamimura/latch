@@ -188,7 +188,7 @@ Draft PRで、同じ入力契約をCI側で再現します。**PR番号はIssue�
 # ISSUE_NUMBERは関連するGitHub Issue番号として事前に解決・検証する
 - run: latch verify --base "origin/${{ github.base_ref }}" --issue "$ISSUE_NUMBER" --json > latch-report.json
   env:
-    ISSUE_NUMBER: "15" # 例示用。実際にはPRに紐づくIssue番号を設定する
+    ISSUE_NUMBER: '15' # 例示用。実際にはPRに紐づくIssue番号を設定する
 ```
 
 このコマンドの終了コード0だけでは検証成功と判定できません。CIの合否判定には`latch-report.json`の状態を解釈する追加ステップが必要です（判定条件は未決定）。
