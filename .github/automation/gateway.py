@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 
 MODEL = 'deepseek-flash'
-MAX_REQUESTS = 100
+MAX_REQUESTS = 150
 MAX_BYTES = 512 * 1024
 MAX_OUTPUT = 8192
 MAX_RESERVED = 32 * 1024 * 1024

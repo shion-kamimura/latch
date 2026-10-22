@@ -80,21 +80,22 @@ class UsageTests(unittest.TestCase):
         self.assertEqual(value['summary']['cache_usage_unknown'], 1)
         self.assertEqual(value['summary']['output_truncations'], 1)
         self.assertEqual(value['outcome'], 'proposal_ready')
-        self.assertEqual(value['limits']['requests'], 100)
+        self.assertEqual(value['limits']['requests'], 150)
         self.assertEqual(value['limits']['context_tokens'], 131072)
 
     def test_failure_artifact_records_limit_without_raw_error(self):
-        event = {'event': 'api_status', 'outcome': 'rejected', 'received': 101, 'attempted': 100,
+        event = {'event': 'api_status', 'outcome': 'rejected', 'received': 151, 'attempted': 150,
                  'http_status': 0, 'reason': 'request_limit', 'request_bytes': 400000,
-                 'reserved': 20000000, 'reserved_limit': gateway.MAX_RESERVED, 'request_limit': 100}
+                 'reserved': 20000000, 'reserved_limit': gateway.MAX_RESERVED, 'request_limit': 150}
         result = subprocess.CompletedProcess([], 0, json.dumps(event), SECRET)
         with tempfile.TemporaryDirectory() as root, patch.object(run.subprocess, 'run', return_value=result), contextlib.redirect_stdout(io.StringIO()):
             run.report_gateway('gateway', Path(root), 'failed', 2000, 'api_error')
             report = json.loads(Path(root, 'diagnostics.json').read_text())
         self.assertEqual(report['summary']['stop_reason'], 'request_limit')
-        self.assertEqual(report['summary']['usage_unknown'], 100)
+        self.assertEqual(report['summary']['usage_unknown'], 150)
         self.assertIsNone(report['summary']['prompt_tokens'])
         self.assertEqual(report['outcome'], 'failed')
+        self.assertEqual(report['limits']['requests'], 150)
 
     def test_unavailable_diagnostics_still_writes_failure_artifact(self):
         with tempfile.TemporaryDirectory() as root, patch.object(run.subprocess, 'run', side_effect=OSError(SECRET)), contextlib.redirect_stdout(io.StringIO()):
