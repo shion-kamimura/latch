@@ -59,15 +59,16 @@ class DiagnosticsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '^stage=opencode_run error=timeout limit_seconds=1800$'):
                 run.run_agent(['opencode'], Path(root, 'log'))
 
-    def request(self, upstream=None, payload=None):
+    def request(self, upstream=None, payload=None, reset=True):
         handler = gateway.Handler.__new__(gateway.Handler)
         raw = json.dumps(payload or {'model': gateway.MODEL, 'messages': [{'content': SECRET}]}).encode()
         handler.path = '/v1/chat/completions'
         handler.headers = {'Content-Length': str(len(raw)), 'Authorization': SECRET}
         handler.rfile = io.BytesIO(raw)
         handler.reply = Mock()
-        gateway.Handler.budget = gateway.Budget()
-        gateway.Handler.received = gateway.Handler.attempted = 0
+        if reset:
+            gateway.Handler.budget = gateway.Budget()
+            gateway.Handler.received = gateway.Handler.attempted = 0
         opener = MagicMock()
         if isinstance(upstream, Exception):
             opener.open.side_effect = upstream
@@ -106,6 +107,34 @@ class DiagnosticsTests(unittest.TestCase):
                 self.assertEqual(statuses[-1]['http_status'], status)
                 self.assertEqual(statuses[-1]['attempted'], 1)
                 self.assertEqual(opener.open.call_args.kwargs['timeout'], 120)
+
+    def test_request_limit_allows_150_attempts_then_rejects_without_spending(self):
+        for upstream, outcome in [
+                (None, 'success'),
+                (urllib.error.HTTPError('https://private', 429, SECRET, {}, None), 'http_error'),
+                (TimeoutError(SECRET), 'timeout')]:
+            with self.subTest(outcome=outcome):
+                reserved = 0
+                for attempt in range(1, 151):
+                    events, handler, opener = self.request(upstream, reset=attempt == 1)
+                    opener.open.assert_called_once()
+                    statuses = [event for event in events if event['event'] == 'api_status']
+                    self.assertEqual(statuses[-1]['outcome'], outcome)
+                    self.assertEqual(statuses[-1]['attempted'], attempt)
+                    self.assertEqual(statuses[-1]['request_limit'], 150)
+                    self.assertEqual(handler.budget.requests, attempt)
+                    reserved += len(opener.open.call_args.args[0].data)
+                    self.assertEqual(handler.budget.reserved, reserved)
+                before = (handler.budget.requests, handler.budget.reserved, handler.attempted)
+                events, handler, opener = self.request(upstream, reset=False)
+                opener.open.assert_not_called()
+                self.assertEqual(events[-1]['reason'], 'request_limit')
+                self.assertEqual(events[-1]['request_limit'], 150)
+                self.assertEqual(events[-1]['received'], 151)
+                self.assertEqual(events[-1]['attempted'], 150)
+                self.assertEqual(events[-1]['reserved'], reserved)
+                self.assertEqual((handler.budget.requests, handler.budget.reserved, handler.attempted), before)
+                handler.reply.assert_called_once_with(400, {'error': 'request_limit'})
 
     def test_rejected_payload_never_attempts_api(self):
         events, handler, opener = self.request(payload={'model': SECRET})
@@ -151,7 +180,7 @@ class DiagnosticsTests(unittest.TestCase):
         budget.reserve(len(body))
         self.assertEqual(budget.reserved, len(body))
         self.assertEqual((gateway.MAX_BYTES, gateway.MAX_REQUESTS, gateway.MAX_RESERVED),
-                         (524_288, 100, 33_554_432))
+                         (524_288, 150, 33_554_432))
 
     def test_previously_rejected_eleventh_request_fits_new_budget(self):
         budget = gateway.Budget()
