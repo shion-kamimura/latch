@@ -26,7 +26,11 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、IssueをOpenC
 
 ## 独立検証
 
-Node.js 26.12.0 / pnpm 12.14.0 / OpenCode 1.19.3を固定しています。候補が改変したnode_modulesは検証へ引き継ぎません。現段階ではbaseイメージの依存を再配置します。候補依存の隔離準備は #35で扱います。
+Node.js 26.12.0 / pnpm 12.14.0 / OpenCode 1.19.3を固定しています。候補が改変したnode_modulesは検証へ引き継ぎません。候補のmanifest / lockfileから、別の依存準備コンテナで `pnpm install --frozen-lockfile --ignore-scripts` を実行します。baseイメージの依存を候補の検証に流用しません。
+
+AIは設定済みのHTTPS proxyを介して公開npm registryだけへアクセスでき、pnpmで依存・lockfileを更新できます。依存準備はAPI中継にも接続しない別internal networkを使います。資格情報を持たない固定宛先トンネルは `registry.npmjs.org:443` だけへ接続し、任意ホスト・ポートを拒否します。metadataやlockfileのURLを書き換えません。private registryや任意URL依存は対象外です。トンネルは最大16接続、各5分、実行全体512 MiBの通信で制限します。
+
+install時はlifecycleを無効にし、取得後に `pnpm rebuild --pending` をネットワークなしの隔離コンテナで実行します。pnpmのallowScripts設定は候補の設定に従い、スクリプトも未信頼として扱います。依存取得5分、script3分を上限とし、不整合・registry拒否・取得失敗・script失敗を固定ラベルで区別します。ホスト上でinstallを実行せず、候補設定から秘密情報・Docker socket・信頼した制御コードへは到達できません。
 
 独立コンテナで `pnpm lint`、`pnpm typecheck`、`pnpm format:check`、`pnpm test`、`pnpm build` を実行します。CLI試験前にはbuildが必要です。AI / 検証コンテナはメモリ4 GiB、CPU 2、プロセス256、AI60分、各検証3分までです。implementジョブは90分です。
 
