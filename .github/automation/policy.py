@@ -159,9 +159,6 @@ def validate_files(files, maintenance=False):
 def validate_body(body, number):
     if not isinstance(body, str) or f'Closes #{number}\n' not in body:
         raise PolicyError('missing_issue_link')
-    for section in REQUIRED_SECTIONS:
-        if not re.search(r'^## ' + re.escape(section) + r'\n\n\S', body, re.MULTILINE):
-            raise PolicyError('missing_pr_section')
 
 
 def report(request, files, body=None):

@@ -64,6 +64,8 @@ jobs:
 
   implement:
     needs: prepare
+    outputs:
+      proposal_ready: ${{ steps.proposal.outputs.ready }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -97,7 +99,15 @@ jobs:
             ${{ runner.temp }}/proposal/policy.json
           if-no-files-found: warn
           retention-days: 14
+      - name: Check safe proposal availability
+        id: proposal
+        if: always()
+        env:
+          PROPOSAL_PATH: ${{ runner.temp }}/proposal/proposal.json
+        run: |
+          if [ -f "$PROPOSAL_PATH" ]; then echo 'ready=true' >> "$GITHUB_OUTPUT"; fi
       - uses: actions/upload-artifact@v4
+        if: always() && steps.proposal.outputs.ready == 'true'
         with:
           name: issue-proposal
           path: ${{ runner.temp }}/proposal/proposal.json
@@ -106,6 +116,7 @@ jobs:
 
   publish:
     needs: [prepare, implement]
+    if: always() && needs.prepare.result == 'success' && needs.implement.outputs.proposal_ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

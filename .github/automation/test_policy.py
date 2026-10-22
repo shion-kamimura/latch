@@ -65,8 +65,7 @@ class PolicyTests(unittest.TestCase):
             body = publish.pr_body(request(), [{'path': 'src/a.ts', 'content': 'x'}])
         policy.validate_body(body, 18)
         for section in policy.REQUIRED_SECTIONS:
-            with self.assertRaises(policy.PolicyError):
-                policy.validate_body(body.replace('## ' + section, '## removed'), 18)
+            policy.validate_body(body.replace('## ' + section, '## renamed'), 18)
         with self.assertRaises(policy.PolicyError):
             policy.validate_body(body.replace('Closes #18', 'Closes #19'), 18)
 

@@ -18,7 +18,7 @@ import time
 import uuid
 
 from gateway import MAX_BYTES, MAX_CONTEXT, MAX_OUTPUT, MAX_REQUESTS, MAX_RESERVED, cost_config
-from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_request, validate_link, MAX_FILE_BYTES
+from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_request, validate_link, MAX_FILE_BYTES, maintenance_path
 
 AGENT_TIMEOUT = 3600
 
@@ -365,7 +365,7 @@ def failure_reason(error):
     message = str(error)
     match = re.match(r'stage=[a-z_]+ error=([a-z_]+)', message)
     if match and match[1] in {'timeout', 'api_error', 'startup_error', 'abnormal_exit', 'agent_error',
-            'configuration_error', 'model_configuration_error', 'provider_initialization_error',
+            'configuration_error', 'model_configuration_error', 'provider_initialization_error', 'partial_results',
             'dependency_mismatch', 'registry_denied', 'dependency_fetch_failed', 'install_script_failed'}:
         return match[1]
     if message.startswith('Independent check failed:'):
@@ -419,6 +419,39 @@ def automation_command(work, control, name):
             'mkdir /tmp/base-tests && cp /trusted/test_*.py /tmp/base-tests/ && '
             'PYTHONPATH=/trusted python -B -m unittest discover -s /tmp/base-tests -p "test_*.py" && '
             'python -B -m unittest discover -s /work/.github/automation -p "test_*.py"']
+
+
+def stop_container(name):
+    # docker CLI timeout does not imply the container stopped.
+    execute(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=30)
+
+
+def check_result(status='not_run', exit_code=None, reason='not_started'):
+    return {'status': status, 'exit_code': exit_code, 'reason': reason}
+
+
+def independent_check(command, log_path, container):
+    try:
+        with Path(log_path).open('wb') as log:
+            result = subprocess.run(command, stdout=log, stderr=log, timeout=180)
+        return check_result('passed' if result.returncode == 0 else 'failed', result.returncode, 'exit_code')
+    except subprocess.TimeoutExpired:
+        return check_result('timeout', reason='time_limit')
+    except OSError:
+        return check_result('environment_unavailable', reason='host_io_error')
+    finally:
+        stop_container(container)
+
+
+def save_proposal(output, before, work, generated, files, checks, implementation):
+    # Both successful and partial proposals must pass exactly the same safety gate.
+    if snapshot(work) != generated:
+        raise PolicyError('source_changed')
+    validate_files(files)
+    value = {'schema_version': 2, 'files': files, 'checks': checks, 'implementation': implementation}
+    Path(output, 'proposal.json').write_text(json.dumps(value) + '\n')
+    return value
 
 
 def dependency_command(network, common, registry, name):
@@ -545,61 +578,71 @@ def main():
                        'latch-agent', 'sh', '-c',
                        'cp -a /opt/deps/node_modules /work/node_modules && exec python3 -B /control/agent_metrics.py opencode run --format json --model deepseek/deepseek-flash --file /input/issue.json -- "$1"',
                        'agent', prompt]
-            run_agent(command, Path(temporary) / 'agent.log', agent_warnings)
-            # Stop gateway before independent checks: verification has no network/API access.
+            implementation = 'completed'
+            try:
+                run_agent(command, Path(temporary) / 'agent.log', agent_warnings)
+            except (ValueError, OSError) as error:
+                implementation = failure_reason(error)
+                stop_reason = implementation
+            finally:
+                # Always stop the candidate before snapshot, even on timeout/nonzero exit.
+                stop_container(agent)
             execute(['docker', 'stop', gateway], stdout=subprocess.DEVNULL)
             generated = snapshot(work)
-            files = changes(before, generated, request.get('allow_maintenance', False))
+            files = changes(before, generated)
             policy_report = report(request, files)
             (output / 'policy.json').write_text(json.dumps(policy_report, indent=2) + '\n')
             print('stage=repository_policy status=passed semantic_scope=unverified', flush=True)
-            if not files:
-                outcome = 'no_changes'
-                print('No source changes; no PR will be created.')
-                (output / 'proposal.json').write_text(json.dumps({'files': [], 'checks': {}}))
-                return
+            checks = {check: check_result() for check in CHECKS}
+            checks['dependencies'] = check_result()
             dependency_name = name + '-install'
             containers.extend([dependency_name, dependency_name + '-scripts'])
-            prepare_dependencies(work, common, registry, dependency_network, dependency_name, temporary)
-            checks = {}
-            for index, check in enumerate(CHECKS):
-                verifier = name + '-check-' + str(index)
-                containers.append(verifier)
-                shell = 'exec pnpm ' + check
-                print('Independent check: pnpm ' + check, flush=True)
-                with open(Path(temporary) / 'check.log', 'wb') as log:
-                    result = subprocess.run(['docker', 'run', '--name', verifier, '--network', 'none',
-                                             *common, 'latch-agent', 'sh', '-c', shell],
-                                            stdout=log, stderr=log, timeout=180)
-                # Disable Actions command interpretation before displaying untrusted test output.
-                marker = uuid.uuid4().hex
-                print('::stop-commands::' + marker, flush=True)
-                print((Path(temporary) / 'check.log').read_text(errors='replace')[-16000:], flush=True)
-                print('::' + marker + '::', flush=True)
-                checks[check] = result.returncode
-                if result.returncode:
-                    raise ValueError('Independent check failed: pnpm ' + check)
-            if any(item['path'] == 'AGENTS.md' or item['path'].startswith('.github/') for item in files):
-                verifier = name + '-automation-check'
-                containers.append(verifier)
-                with open(Path(temporary) / 'automation.log', 'wb') as log:
-                    result = subprocess.run(automation_command(work, control, verifier),
-                                            stdout=log, stderr=log, timeout=180)
-                checks[AUTOMATION_CHECK] = result.returncode
-                print('stage=automation_check status=' + ('passed' if result.returncode == 0 else 'failed'), flush=True)
-                if result.returncode:
-                    raise ValueError('Independent check failed: automation')
-            # Tests cannot silently edit the submitted source after verification.
-            if snapshot(work) != generated:
-                raise ValueError('Verification modified source; refusing to publish')
-            (output / 'proposal.json').write_text(json.dumps({'files': files, 'checks': checks}))
-            outcome = 'proposal_ready'
-            print('All independent checks passed; proposal ready.')
+            if files:
+                try:
+                    prepare_dependencies(work, common, registry, dependency_network, dependency_name, temporary)
+                    checks['dependencies'] = check_result('passed', 0, 'exit_code')
+                except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+                    checks['dependencies'] = check_result('environment_unavailable', reason=failure_reason(error))
+                finally:
+                    # Collection never races a timed-out installer or lifecycle script.
+                    for install_container in [dependency_name, dependency_name + '-scripts']:
+                        result = subprocess.run(['docker', 'inspect', install_container], stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL, timeout=10)
+                        if result.returncode == 0:
+                            stop_container(install_container)
+                if checks['dependencies']['status'] == 'passed':
+                    for index, check in enumerate(CHECKS):
+                        # The default test script already builds before CLI E2E.
+                        if check == 'build' and checks['test']['status'] == 'passed':
+                            manifest = json.loads((work / 'package.json').read_text())
+                            if manifest.get('scripts', {}).get('test') == 'vitest run --project unit --project integration && pnpm build && vitest run --project e2e':
+                                checks[check] = check_result('not_run', reason='covered_by_test')
+                                continue
+                        verifier = name + '-check-' + str(index)
+                        containers.append(verifier)
+                        checks[check] = independent_check(
+                            ['docker', 'run', '--name', verifier, '--network', 'none', *common,
+                             'latch-agent', 'pnpm', check], Path(temporary) / 'check.log', verifier)
+                        print('stage=independent_check check=' + check + ' status=' + checks[check]['status'], flush=True)
+                if any(maintenance_path(item['path']) for item in files):
+                    verifier = name + '-automation-check'
+                    containers.append(verifier)
+                    checks[AUTOMATION_CHECK] = independent_check(automation_command(work, control, verifier),
+                                                                 Path(temporary) / 'automation.log', verifier)
+            save_proposal(output, before, work, generated, files, checks, implementation)
+            passed = all(item['status'] == 'passed' or item['reason'] == 'covered_by_test' for item in checks.values())
+            outcome = 'proposal_ready' if passed and implementation == 'completed' else 'partial_proposal'
+            if not files:
+                outcome = 'no_changes' if implementation == 'completed' else 'failed'
+            print('stage=proposal status=' + outcome, flush=True)
+            if outcome not in {'proposal_ready', 'no_changes'}:
+                raise ValueError('stage=proposal error=partial_results')
         except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-            stop_reason = failure_reason(error)
+            stop_reason = stop_reason or failure_reason(error)
             if isinstance(error, PolicyError):
                 (output / 'policy.json').write_text(json.dumps({'schema_version': 1, 'status': 'failed',
-                                                              'reason': error.code}) + '\n')
+                                                              'reason': error.code, 'path': error.path,
+                                                              'next_action': 'inspect_rejected_change_without_publishing'}) + '\n')
             raise
         finally:
             metrics = dict(read_agent_metrics(Path(temporary) / 'agent.log'), time_warning=bool(agent_warnings))
