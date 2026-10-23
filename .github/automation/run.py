@@ -1,6 +1,7 @@
 """Trusted host orchestration; generated code only runs in disposable containers."""
 
 import base64
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import hashlib
 import io
@@ -22,6 +23,7 @@ from gateway import MAX_BYTES, MAX_CONTEXT, MAX_OUTPUT, MAX_REQUESTS, MAX_RESERV
 from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_pr_title, validate_request, validate_link, MAX_FILE_BYTES, MAX_PROPOSAL_BYTES, maintenance_path
 
 AGENT_TIMEOUT = 3600
+HEARTBEAT_SECONDS = 30
 
 CHECKS = ['lint', 'typecheck', 'format:check', 'test', 'build']
 MAX_SNAPSHOT_BYTES = 2 * 1024**3
@@ -167,10 +169,13 @@ def run_agent(command, log_path, warnings=None):
     timer.daemon = True
     timer.start()
     try:
-        with open(log_path, 'wb') as log:
+        with stage_diagnostic(log_path, 'opencode_run', AGENT_TIMEOUT) as record:
             try:
-                result = subprocess.run(command, stdout=log, stderr=log, timeout=AGENT_TIMEOUT, preexec_fn=limit_log_output)
+                with open(log_path, 'wb') as log:
+                    result = subprocess.run(command, stdout=log, stderr=log, timeout=AGENT_TIMEOUT, preexec_fn=limit_log_output)
+                record.update(status='passed' if result.returncode == 0 else 'failed', reason='process_exit_only', exit_code=result.returncode)
             except subprocess.TimeoutExpired:
+                record.update(status='timeout', reason='time_limit')
                 raise ValueError(f'stage=opencode_run error=timeout limit_seconds={AGENT_TIMEOUT}') from None
     finally:
         timer.cancel()
@@ -191,27 +196,33 @@ def verify_startup(command):
     print('stage=opencode_startup status=ready', flush=True)
 
 
-def report_gateway(gateway, output=None, outcome='failed', elapsed_ms=0, stop_reason=None, issue_number=None, agent_metrics=None):
+def report_gateway(gateway, output=None, outcome='failed', elapsed_ms=0, stop_reason=None, issue_number=None, agent_metrics=None, since=None):
     """Rebuild the gateway's fixed-schema counters instead of relaying Docker logs."""
     records = []
     available = False
     try:
-        result = subprocess.run(['docker', 'logs', gateway], capture_output=True,
+        result = subprocess.run(['docker', 'logs', '--timestamps', *(['--since', str(since)] if since is not None else []), gateway], capture_output=True,
                                 text=True, timeout=10)
         if result.returncode:
             raise ValueError
         found = False
         for line in result.stdout.splitlines():
+            occurred = None
+            match = re.match(r'^(20[0-9]{2}-[0-9T:.Z+-]{10,40}) (.*)$', line)
+            if match:
+                occurred, line = match.groups()
             try:
                 event = json.loads(line)
             except ValueError:
                 continue
             if not isinstance(event, dict):
                 continue
+            if occurred and event.get('event') in {'api_status', 'api_usage', 'api_budget'}:
+                print(f'stage=api_clock occurred_at={occurred} emitted_at={time.time()} mode=' + ('live' if since is not None else 'replay'), flush=True)
             if event.get('event') == 'api_budget':
                 record = safe_budget_event(event)
                 if record is not None and len(records) < 100000:
-                    records.append(record)
+                    records.append(dict(record, occurred_at=occurred, emitted_at=time.time()) if occurred else record)
                     print('stage=api_cost estimated_usd=' + record['estimated_usd'] +
                           ' held_usd=' + record['held_usd'] +
                           ' warnings=' + (','.join(record['warnings']) or 'none'), flush=True)
@@ -219,7 +230,7 @@ def report_gateway(gateway, output=None, outcome='failed', elapsed_ms=0, stop_re
             if event.get('event') == 'api_usage':
                 record = safe_usage_event(event)
                 if record is not None and len(records) < 100000:
-                    records.append(record)
+                    records.append(dict(record, occurred_at=occurred, emitted_at=time.time()) if occurred else record)
                     print('stage=api_usage ' + ' '.join(f'{key}={value}' for key, value in record.items() if key != 'event'), flush=True)
                 continue
             if event.get('event') != 'api_status':
@@ -243,7 +254,7 @@ def report_gateway(gateway, output=None, outcome='failed', elapsed_ms=0, stop_re
                     print('stage=api_budget reason=' + reason + ' ' +
                           ' '.join(f'{key}={event[key]}' for key in numeric), flush=True)
             if len(records) < 100000:
-                records.append(status_record)
+                records.append(dict(status_record, occurred_at=occurred, emitted_at=time.time()) if occurred else status_record)
             found = True
         if not found:
             raise ValueError
@@ -255,6 +266,24 @@ def report_gateway(gateway, output=None, outcome='failed', elapsed_ms=0, stop_re
             write_diagnostics(output, records, available, outcome, elapsed_ms, stop_reason, issue_number, agent_metrics)
         except OSError:
             print('stage=diagnostics error=write_failed', flush=True)
+
+
+@contextmanager
+def live_gateway(gateway):
+    stopped = threading.Event()
+    def poll():
+        since = time.time()
+        while not stopped.wait(HEARTBEAT_SECONDS):
+            until = time.time()
+            report_gateway(gateway, since=since)
+            since = until
+    worker = threading.Thread(target=poll, daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        worker.join(timeout=15)
 
 
 def safe_usage_event(event):
@@ -479,10 +508,117 @@ def check_result(status='not_run', exit_code=None, reason='not_started'):
     return {'status': status, 'exit_code': exit_code, 'reason': reason}
 
 
-def independent_check(command, log_path, container):
+@contextmanager
+def stage_diagnostic(log_path, stage, limit):
+    """Publish only host-owned metadata; never relay untrusted command output."""
+    if stage not in {'dependency_fetch', 'dependency_lifecycle', 'opencode_run', 'check', *CHECKS, AUTOMATION_CHECK}:
+        raise ValueError('invalid_diagnostic_stage')
+    started = time.monotonic()
+    record = {'stage': stage, 'status': 'running', 'reason': 'in_progress',
+              'started_at': time.time(), 'elapsed_ms': 0, 'limit_seconds': limit,
+              'exit_code': None, 'raw_log_limit_bytes': LOG_LIMIT_BYTES}
+    path = Path(log_path).with_suffix('.safe.json')
+    def emit():
+        record['elapsed_ms'] = int((time.monotonic() - started) * 1000)
+        path.write_text(json.dumps(record) + '\n')
+        print('stage=execution ' + json.dumps(record), flush=True)
+    emit()
+    stopped = threading.Event()
+    def heartbeat():
+        while not stopped.wait(HEARTBEAT_SECONDS):
+            emit()
+    worker = threading.Thread(target=heartbeat, daemon=True)
+    worker.start()
     try:
+        yield record
+    except subprocess.TimeoutExpired:
+        record.update(status='timeout', reason='time_limit')
+        raise
+    except OSError:
+        record.update(status='environment_unavailable', reason='host_io_error')
+        raise
+    finally:
+        stopped.set()
+        worker.join()
+        record['finished_at'] = time.time()
+        if Path(log_path).exists():
+            record['raw_log_bytes'] = Path(log_path).stat().st_size
+            record['raw_log_at_limit'] = record['raw_log_bytes'] >= LOG_LIMIT_BYTES
+        emit()
+
+
+def diagnostic_command(command, log_path, stage, limit):
+    with stage_diagnostic(log_path, stage, limit) as record:
         with Path(log_path).open('wb') as log:
-            result = subprocess.run(command, stdout=log, stderr=log, timeout=180, preexec_fn=limit_log_output)
+            result = subprocess.run(command, stdout=log, stderr=log, timeout=limit,
+                                    preexec_fn=limit_log_output)
+        record.update(status='passed' if result.returncode == 0 else 'failed',
+                      reason=(dependency_failure(log_path) if stage == 'dependency_fetch' else 'install_script_failed')
+                      if result.returncode and stage in {'dependency_fetch', 'dependency_lifecycle'} else 'exit_code',
+                      exit_code=result.returncode)
+        return result
+
+
+def save_execution(output, temporary, request, checks, generated=None, before=None):
+    directory = Path(output, 'stages')
+    directory.mkdir(exist_ok=True)
+    records = []
+    for path in sorted(Path(temporary).glob('*.safe.json')):
+        # These sidecars are written only by the trusted host, outside candidate mounts.
+        data = path.read_bytes()
+        if len(data) <= 4096:
+            (directory / path.name).write_bytes(data)
+            records.append(json.loads(data))
+    digest = None
+    if generated is not None:
+        digest = hashlib.sha256(json.dumps({key: [value.digest, value.mode]
+                                           for key, value in sorted(generated.items())}, sort_keys=True).encode()).hexdigest()
+    diff_digest = None
+    if generated is not None and before is not None:
+        changed = {key: [generated[key].digest, generated[key].mode] if key in generated else None
+                   for key in sorted(before.keys() | generated.keys()) if before.get(key) != generated.get(key)}
+        diff_digest = hashlib.sha256(json.dumps(changed, sort_keys=True).encode()).hexdigest()
+    attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '')
+    run_id = os.environ.get('GITHUB_RUN_ID', '')
+    attempt = attempt if attempt.isascii() and attempt.isdecimal() and len(attempt) <= 20 else 'unknown'
+    run_id = run_id if run_id.isascii() and run_id.isdecimal() and len(run_id) <= 20 else 'unknown'
+    artifact = f'issue-diagnostics-{run_id}-{attempt}'
+    lines = [f'## Issue #{request["number"]} execution diagnostics',
+             f'Control base: `{request["base"]}`', f'Verification source: `{request.get("source", request["base"])}`',
+             f'Candidate snapshot SHA-256: `{digest or "unavailable"}`',
+             f'Candidate diff SHA-256: `{diff_digest or "unavailable"}`',
+             f'Run: {run_id}; attempt: {attempt}; artifact: `{artifact}` (14 days)',
+             'Process exit and check success do not establish requirement fulfillment (unverified).',
+             '', '| Stage | Status | Reason | Exit | Elapsed ms | Limit seconds |',
+             '| --- | --- | --- | --- | --- | --- |']
+    for record in records:
+        lines.append('| ' + ' | '.join(str(record[key]) for key in
+                     ['stage', 'status', 'reason', 'exit_code', 'elapsed_ms', 'limit_seconds']) + ' |')
+    recorded = {record['stage'] for record in records}
+    for stage in ['dependency_fetch', 'dependency_lifecycle']:
+        if stage not in recorded:
+            lines.append(f'| {stage} | not_run | preceding_stage_incomplete_or_no_changes | — | — | — |')
+    for name, result in checks.items():
+        if result['status'] == 'not_run':
+            lines.append(f'| {name} | not_run | {result["reason"]} | — | — | — |')
+    incomplete = [r['stage'] for r in records if r['status'] != 'passed']
+    lines += ['', 'Next: inspect/retry ' + (', '.join(incomplete) if incomplete else 'unexecuted checks, or review evidence and requirements') + '.',
+              'Only fixed-schema metadata is published; raw stdout/stderr is temporary and excluded.']
+    text = '\n'.join(lines) + '\n'
+    Path(output, 'execution-summary.md').write_text(text)
+    if os.environ.get('GITHUB_STEP_SUMMARY'):
+        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+            summary.write(text)
+
+
+def independent_check(command, log_path, container):
+    stage = Path(log_path).stem
+    if stage == 'format_check':
+        stage = 'format:check'
+    if stage not in {*CHECKS, AUTOMATION_CHECK}:
+        stage = 'check'
+    try:
+        result = diagnostic_command(command, log_path, stage, 180)
         return check_result('passed' if result.returncode == 0 else 'failed', result.returncode, 'exit_code')
     except subprocess.TimeoutExpired:
         return check_result('timeout', reason='time_limit')
@@ -528,18 +664,17 @@ def prepare_dependencies(work, common, registry, network, name, temporary):
         dependencies.unlink()
     elif dependencies.exists():
         shutil.rmtree(dependencies)
-    log_path = Path(temporary) / 'dependencies.log'
-    with log_path.open('wb') as log:
-        result = subprocess.run(dependency_command(network, common, registry, name),
-                                stdout=log, stderr=log, timeout=300, preexec_fn=limit_log_output)
+    log_path = Path(temporary) / 'dependency_fetch.log'
+    result = diagnostic_command(dependency_command(network, common, registry, name),
+                                log_path, 'dependency_fetch', 300)
     if result.returncode:
         raise ValueError('stage=dependencies error=' + dependency_failure(log_path))
     # Lifecycle scripts are untrusted: run them with no network, secrets or host mounts.
-    with log_path.open('wb') as log:
-        result = subprocess.run(['docker', 'run', '--name', name + '-scripts', '--network', 'none',
+    log_path = Path(temporary) / 'dependency_lifecycle.log'
+    result = diagnostic_command(['docker', 'run', '--name', name + '-scripts', '--network', 'none',
                                  *common, 'latch-agent', 'pnpm', 'rebuild', '--pending',
                                  '--store-dir=/work/node_modules/.store'],
-                                stdout=log, stderr=log, timeout=180, preexec_fn=limit_log_output)
+                                log_path, 'dependency_lifecycle', 180)
     if result.returncode:
         raise ValueError('stage=dependencies error=install_script_failed')
 
@@ -587,6 +722,8 @@ def main():
         stop_reason = None
         agent_warnings = []
         started = time.monotonic()
+        checks = {check: check_result() for check in [*CHECKS, 'dependencies']}
+        generated = None
         try:
             # Same user, read-only filesystem and tmpfs as the real agent; no API/network.
             preflight = name + '-preflight'
@@ -646,7 +783,8 @@ def main():
                        'agent', prompt]
             implementation = 'completed'
             try:
-                run_agent(command, Path(temporary) / 'agent.log', agent_warnings)
+                with live_gateway(gateway):
+                    run_agent(command, Path(temporary) / 'agent.log', agent_warnings)
             except (ValueError, OSError) as error:
                 implementation = failure_reason(error)
                 stop_reason = implementation
@@ -670,12 +808,16 @@ def main():
             checks['dependencies'] = check_result()
             dependency_name = name + '-install'
             containers.extend([dependency_name, dependency_name + '-scripts'])
+            if not files:
+                checks = {check: check_result(reason='no_changes') for check in checks}
             if files:
                 try:
                     prepare_dependencies(work, common, registry, dependency_network, dependency_name, temporary)
                     checks['dependencies'] = check_result('passed', 0, 'exit_code')
                 except (ValueError, OSError, subprocess.TimeoutExpired) as error:
                     checks['dependencies'] = check_result('environment_unavailable', reason=failure_reason(error))
+                    for check in CHECKS:
+                        checks[check] = check_result(reason='dependencies_unavailable')
                 finally:
                     # Collection never races a timed-out installer or lifecycle script.
                     for install_container in [dependency_name, dependency_name + '-scripts']:
@@ -695,13 +837,13 @@ def main():
                         containers.append(verifier)
                         checks[check] = independent_check(
                             ['docker', 'run', '--name', verifier, '--network', 'none', *common,
-                             'latch-agent', 'pnpm', check], Path(temporary) / 'check.log', verifier)
+                             'latch-agent', 'pnpm', check], Path(temporary) / (check.replace(':', '_') + '.log'), verifier)
                         print('stage=independent_check check=' + check + ' status=' + checks[check]['status'], flush=True)
                 if any(maintenance_path(item['path']) for item in files):
                     verifier = name + '-automation-check'
                     containers.append(verifier)
                     checks[AUTOMATION_CHECK] = independent_check(automation_command(work, control, verifier),
-                                                                 Path(temporary) / 'automation.log', verifier)
+                                                                 Path(temporary) / (AUTOMATION_CHECK + '.log'), verifier)
             save_proposal(output, before, work, generated, files, checks, implementation, pr_title)
             passed = all(item['status'] == 'passed' or item['reason'] == 'covered_by_test' for item in checks.values())
             outcome = 'proposal_ready' if passed and implementation == 'completed' and title_error is None else 'partial_proposal'
@@ -720,6 +862,10 @@ def main():
                                                               'next_action': 'inspect_rejected_change_without_publishing'}) + '\n')
             raise
         finally:
+            try:
+                save_execution(output, temporary, request, checks, generated, before)
+            except OSError:
+                print('stage=diagnostics error=write_failed', flush=True)
             metrics = dict(read_agent_metrics(Path(temporary) / 'agent.log'), time_warning=bool(agent_warnings))
             report_gateway(gateway, output, outcome, int((time.monotonic() - started) * 1000), stop_reason, request.get('number'), metrics)
             for container in containers + [gateway, registry]:

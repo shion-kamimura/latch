@@ -1,4 +1,5 @@
 name: Issue to Draft PR
+run-name: 'Issue #${{ inputs.issue_number }} to Draft PR (attempt ${{ github.run_attempt }})'
 
 on:
   workflow_dispatch:
@@ -83,10 +84,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: issue-diagnostics
+          name: issue-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/proposal/diagnostics.json
             ${{ runner.temp }}/proposal/policy.json
+            ${{ runner.temp }}/proposal/stages/*.safe.json
+            ${{ runner.temp }}/proposal/execution-summary.md
           if-no-files-found: warn
           retention-days: 14
       - name: Check safe proposal availability

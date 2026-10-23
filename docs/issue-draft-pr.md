@@ -127,3 +127,20 @@ API失敗は `configuration_error`、`model_configuration_error`、`api_error`�
 [DeepSeek料金・仕様](https://api-docs.deepseek.com/quick_start/pricing/) / [OpenCode設定](https://opencode.ai/docs/config/) / [GitHubトークンによるイベント](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow)
 
 横断確認の具体的な結果と未検証事項は [#32分割実装と横断検証の記録](ai-development-validation.md) を参照してください。
+
+### 工程別の診断と失敗時の確認（#54）
+
+run-nameには入力Issue番号を表示します。コミット題名は対象Issueの識別には使いません。implementのJob Summaryと `issue-diagnostics-<run ID>-<attempt>` Artifactで、制御base、検証source、候補snapshotと差分のSHA-256、実行attemptを照合できます。digestは候補のパス・内容hash・mode（差分では削除も含む）を正規化して計算し、要求充足の証明には使いません。
+
+`dependency_fetch` はpnpmのfrozen lockfile照合・解決・取得を含む一つのinstall工程（300秒）、`dependency_lifecycle` はnetwork noneのrebuild（180秒）です。pnpm内部の解決と取得を別プロセスとして計測するものではありません。各独立チェックは180秒、AIプロセスは3600秒です。各工程の開始・終了時刻、経過ms、制限、終了コード、固定分類を記録し、実行中は30秒ごとにActionsログへ経過を出します。取得timeoutとlifecycle timeoutは別のstageの `timeout / time_limit`、チェック非ゼロ終了は `failed / exit_code` です。取得失敗はlockfile不整合・registry拒否・その他取得失敗、script失敗は `install_script_failed` に分類します。
+
+失敗した工程を確認し、SummaryのNextと未実行理由を見て再試行対象を決めます。現行workflowの再実行はAIも再実行し得ます。保存候補の検証だけを再実行する機能は#56の対象です。依存準備不能なら主要チェックは `not_run / dependencies_unavailable`、変更なしなら `not_run / no_changes`、test内でbuild済みなら `not_run / covered_by_test` です。正常なAIプロセス終了、独立チェック成功、要求充足（未確認）は別々に判断します。
+
+公開範囲と上限:
+
+- 生のstdout/stderrは工程別の一時ファイルに分離し、各16 MiBを子プロセスのファイル上限で制限します。取得・lifecycle・各チェックは互いのログを上書きしません。生ログはrunnerの一時領域だけに置き、Artifact、Summary、PRへ転送しません。
+- 公開する工程診断は信頼したホストが作る固定項目のみです。工程ごとに4 KiB以下の `stages/*.safe.json` を保存します。候補コード、Issue本文、コマンド引数、パス、API本文、URL、headers、例外本文を含めず、任意文字列の正規表現置換による秘匿には依存しません。
+- 工程診断とSummary、既存のAPI診断・policyは14日保存、requestとproposalは従来どおり1日です。Actionsログ・Summary・Artifactはリポジトリの閲覧権限に従い、publicでは公開情報として扱います。Actionsログ・Summaryの保持期間はGitHub側のリポジトリ設定に従い、Artifactの14日設定とは別です。
+- API記録はAI実行中も30秒間隔で固定項目だけを出力します。Dockerログの発生時刻 `occurred_at` と、ホストが出力した時刻 `emitted_at`、`mode=live/replay` を区別します。最終API集計は既存の最大100,000件の固定項目を保存し、工程別4 KiB制限とは別です。時刻は実行順序の参考で、厳密な因果関係の証明ではありません。
+
+通常の非ゼロ終了・timeoutでもfinallyで工程診断とSummaryを保存し、`always()`でArtifactへ転送します。runner強制終了、キャンセル、ディスク障害では保存できない場合があります。診断が欠損した場合は成功と推定せず、Actions標準ログを確認してください。ローカル境界試験はモックのDocker/APIと実際の小さな子プロセスを使用し、実Actions・実DeepSeek・実pnpmネットワーク取得での確認とは区別します。
