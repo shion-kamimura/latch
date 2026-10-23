@@ -27,7 +27,7 @@ def validate(proposal, maintenance=False):
             if (not isinstance(result, dict) or set(result) != {'status', 'exit_code', 'reason'}
                     or result['status'] not in {'passed', 'failed', 'timeout', 'not_run', 'environment_unavailable'}
                     or result['reason'] not in {'not_started', 'exit_code', 'time_limit', 'host_io_error',
-                       'covered_by_test', 'dependency_mismatch', 'registry_denied', 'dependency_fetch_failed',
+                       'covered_by_test', 'dependencies_unavailable', 'no_changes', 'dependency_mismatch', 'registry_denied', 'dependency_fetch_failed',
                        'install_script_failed', 'validation_timeout', 'host_validation_failed'}):
                 raise PolicyError('invalid_results')
             code = result['exit_code']

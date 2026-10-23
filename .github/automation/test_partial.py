@@ -72,6 +72,10 @@ class PartialTests(unittest.TestCase):
                         run.main()
                 else:
                     run.main()
+            self.assertTrue((output / 'execution-summary.md').is_file())
+            self.assertIn('requirement fulfillment (unverified)', (output / 'execution-summary.md').read_text())
+            if dependency_error:
+                self.assertIn('dependencies_unavailable', (output / 'execution-summary.md').read_text())
             if unsafe:
                 self.assertFalse((output / 'proposal.json').exists())
                 self.assertEqual(json.loads((output / 'policy.json').read_text())['reason'], 'secret_detected')
