@@ -1,6 +1,5 @@
-name: 機能開発
-description: AIエージェントが実装できる単位で目的と受け入れ条件を定義する
-title: '[Feature] '
+name: 開発Issue
+description: 機能・不具合・文書・保守の課題と受け入れ条件を定義する。タイトルは課題・期待動作を具体的に書き、種類はラベルで分類する。
 body:
   - type: textarea
     id: problem

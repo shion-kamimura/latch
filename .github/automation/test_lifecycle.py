@@ -74,12 +74,12 @@ class LifecycleTests(unittest.TestCase):
                 'source': 'a' * 40, 'expected_head': None,
                 'branch': 'feat/automated-' + hashlib.sha256(b'node').hexdigest()[:16]}
 
-    def publish(self, github, request, content='first'):
+    def publish(self, github, request, content='first', title='feat: API入力を検証する'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'request.json').write_text(json.dumps(request))
             (root / 'proposal.json').write_text(json.dumps({'files': [{'path': 'src.ts', 'content': content}],
-                                                          'checks': dict.fromkeys(run.CHECKS, 0)}))
+                                                          'checks': dict.fromkeys(run.CHECKS, 0), 'pr_title': title}))
             with patch.dict(os.environ, {'REQUEST_PATH': str(root / 'request.json'), 'OUTPUT_PATH': str(root),
                                          'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_RUN_ID': '123'}), \
                     patch.object(publish, 'api', github.api):
@@ -97,7 +97,8 @@ class LifecycleTests(unittest.TestCase):
         self.publish(github, request)
         self.assertEqual(len(github.prs), 1)
         request.update(source=saved, expected_head=saved)
-        self.publish(github, request, 'second')
+        self.publish(github, request, 'second', title='fix: API入力の不具合を修正する')
+        self.assertEqual(github.prs[0]['title'], 'fix: API入力の不具合を修正する')
         self.assertNotEqual(github.head, saved)
         self.assertEqual(len(github.prs), 1)
         self.assertIn('検証入力commit: ' + saved, github.prs[0]['body'])

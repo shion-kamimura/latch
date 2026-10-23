@@ -94,7 +94,7 @@ class BoundaryTests(unittest.TestCase):
                                                'title': 'Example', 'body': 'Requirements'}))
                 Path(root, 'proposal.json').write_text(json.dumps({
                     'files': [{'path': 'src/new.ts', 'content': 'example'}],
-                    'checks': dict.fromkeys(run.CHECKS, 0),
+                    'checks': dict.fromkeys(run.CHECKS, 0), 'pr_title': 'feat: APIの動作を実装する',
                 }))
                 calls = []
                 def fake_api(method, path, data=None):

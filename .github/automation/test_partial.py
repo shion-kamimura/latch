@@ -16,7 +16,7 @@ import run
 
 
 class PartialTests(unittest.TestCase):
-    def exercise(self, agent_error=None, check_failure=False, dependency_error=None, unsafe=False):
+    def exercise(self, agent_error=None, check_failure=False, dependency_error=None, unsafe=False, omit_title=False, cleanup_title=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             request = {'number': 1, 'base': 'a' * 40, 'branch': 'feat/automated-' + 'b' * 16,
@@ -37,6 +37,9 @@ class PartialTests(unittest.TestCase):
                 work = Path(mount.split('src=')[1].split(',')[0])
                 work_path.append(work)
                 (work / 'new.ts').write_text('API_KEY=' + 'a' * 40 if unsafe else 'export {};')
+                if not omit_title:
+                    (work / 'dist').mkdir()
+                    (work / 'dist/latch-pr-title.json').write_text(json.dumps({'title': 'feat: APIの検証処理を追加する'}))
                 events.append('edited')
                 if agent_error:
                     raise ValueError('stage=opencode_run error=' + agent_error)
@@ -48,6 +51,9 @@ class PartialTests(unittest.TestCase):
                 return original_snapshot(path)
             original_snapshot = run.snapshot
             def check(*args):
+                if cleanup_title:
+                    import shutil
+                    shutil.rmtree(work_path[0] / 'dist', ignore_errors=True)
                 return run.check_result('failed' if check_failure else 'passed', 1 if check_failure else 0, 'exit_code')
             patches = [patch.dict(os.environ, {'DEEPSEEK_API_KEY': 'dummy', 'REQUEST_PATH': str(request_path), 'OUTPUT_PATH': str(output)}),
                        patch.object(run.subprocess, 'check_output', return_value=archive.getvalue()),
@@ -61,7 +67,7 @@ class PartialTests(unittest.TestCase):
             with contextlib.ExitStack() as stack:
                 for item in patches:
                     stack.enter_context(item)
-                if agent_error or check_failure or dependency_error or unsafe:
+                if agent_error or check_failure or dependency_error or unsafe or omit_title:
                     with self.assertRaises(ValueError):
                         run.main()
                 else:
@@ -73,6 +79,9 @@ class PartialTests(unittest.TestCase):
                 value = json.loads((output / 'proposal.json').read_text())
                 self.assertEqual(publish.validate(value)[0]['path'], 'new.ts')
                 self.assertEqual(value['implementation'], agent_error or 'completed')
+                self.assertEqual(value['pr_title'], None if omit_title else 'feat: APIの検証処理を追加する')
+                if omit_title:
+                    self.assertEqual(json.loads((output / 'policy.json').read_text())['reason'], 'invalid_pr_title')
                 if dependency_error:
                     self.assertEqual(value['checks']['test']['status'], 'not_run')
                 if check_failure:
@@ -84,6 +93,11 @@ class PartialTests(unittest.TestCase):
             self.exercise(agent_error=reason)
         self.exercise(check_failure=True)
         self.exercise(dependency_error=ValueError('stage=dependencies error=dependency_fetch_failed'))
+
+    def test_title_is_preserved_before_build_and_partial_artifacts_survive_missing_title(self):
+        self.exercise(cleanup_title=True)
+        self.exercise(omit_title=True)
+        self.exercise(agent_error='timeout', omit_title=True)
 
     def test_unsafe_partial_never_produces_artifact(self):
         self.exercise(agent_error='timeout', unsafe=True)

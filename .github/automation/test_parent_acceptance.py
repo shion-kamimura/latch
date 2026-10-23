@@ -69,11 +69,13 @@ for (const item of cases) {
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'request.json').write_text(json.dumps(request))
-            (root / 'proposal.json').write_text(json.dumps({'files': files, 'checks': dict.fromkeys(run.CHECKS, 0)}))
+            (root / 'proposal.json').write_text(json.dumps({'files': files, 'checks': dict.fromkeys(run.CHECKS, 0),
+                                                          'pr_title': 'test: バイナリとリンクの公開を検証する'}))
             import os
             with patch.dict(os.environ, {'REQUEST_PATH': str(root / 'request.json'), 'OUTPUT_PATH': directory,
                                          'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_RUN_ID': '123'}), patch.object(publish, 'api', api):
                 publish.main()
+        self.assertEqual(github.prs[0]['title'], 'test: バイナリとリンクの公開を検証する')
         blob = next(data for _, path, data in github.writes if path == '/git/blobs')
         self.assertEqual(base64.b64decode(blob['content']), b'\x89PNG\x00\xff')
         tree = next(data['tree'] for _, path, data in github.writes if path == '/git/trees')
