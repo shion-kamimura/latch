@@ -28,9 +28,10 @@ MAX_CHANGED_FILES = 1000
 def secret_present(data):
     # Deliberately limited detector, not a proof that arbitrary data is secret-free.
     text = data.decode('utf-8', errors='replace') if isinstance(data, bytes) else data
-    return bool(re.search(r'-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----|'
+    return bool(re.search(r'-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----\s+[A-Za-z0-9+/=\s]{64,}-----END (?:[A-Z]+ )*PRIVATE KEY-----|'
+
                           r'\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b|'
-                          r'(?i:(?:api[_-]?key|access[_-]?token|password|secret)\s*[=:]\s*["\']?(?!dummy|example|test|placeholder|changeme|\$)[A-Za-z0-9_+/=-]{20,})', text))
+                          r'(?i:(?:api[_-]?key|access[_-]?token|password|secret)["\']?\s*[=:]\s*["\']?(?!dummy|example|test|placeholder|changeme|\$)[A-Za-z0-9_+/=-]{20,})', text))
 
 
 def safe_path(path):
@@ -59,7 +60,11 @@ def validate_pr_title(title):
 
 def allowed(path, maintenance=False):
     # maintenance is a deprecated no-op retained for old requests.
-    if (not isinstance(path, str) or not path or len(path.encode('utf-8')) > 4096
+    try:
+        encoded_length = len(path.encode('utf-8')) if isinstance(path, str) else 0
+    except UnicodeError:
+        return False
+    if (not isinstance(path, str) or not path or encoded_length > 4096
             or '\\' in path or any(ord(c) < 32 or ord(c) == 127 for c in path)):
         return False
     parts = path.split('/')

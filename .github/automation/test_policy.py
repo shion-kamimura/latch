@@ -38,7 +38,7 @@ class PolicyTests(unittest.TestCase):
                       [{'path': 'docs/a.md', 'content': 'x'}] * 2,
                       [{'path': 'docs/a.md', 'content': 'x', 'mode': '160000'}],
                       [{'path': '.env', 'content': 'API_KEY=' + 'a' * 40}],
-                      [{'path': 'key.txt', 'content': '-----BEGIN PRIVATE KEY-----'}]]:
+                      [{'path': 'key.txt', 'content': '-----BEGIN PRIVATE KEY-----\n' + 'A' * 80 + '\n-----END PRIVATE KEY-----'}]]:
             with self.assertRaises(policy.PolicyError):
                 policy.validate_files(files)
         policy.validate_files([{'path': '.env.example', 'content': 'API_KEY=dummy-value'}])

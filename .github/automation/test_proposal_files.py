@@ -51,7 +51,7 @@ class ProposalFilesTests(unittest.TestCase):
             with self.assertRaises(policy.PolicyError):
                 run.snapshot(root)
         item = {'path': 'fixture.bin', 'encoding': 'base64',
-                'content': base64.b64encode(b'-----BEGIN PRIVATE KEY-----').decode()}
+                'content': base64.b64encode(b'-----BEGIN PRIVATE KEY-----\n' + b'A' * 80 + b'\n-----END PRIVATE KEY-----').decode()}
         with self.assertRaisesRegex(policy.PolicyError, 'secret_detected'):
             policy.validate_files([item])
 

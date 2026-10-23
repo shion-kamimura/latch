@@ -1,0 +1,8 @@
+{
+  "name": "latch-automation-acceptance-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

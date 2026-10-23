@@ -1,0 +1,11 @@
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -4,7 +4,7 @@
+   const request = new URL(url, 'http://localhost');
+   if (request.pathname !== '/duration') return { status: 404 };
+   const ms = Number(request.searchParams.get('ms'));
+-  if (!Number.isFinite(ms)) {
++  if (!Number.isFinite(ms) || ms === -1) {
+     return { status: 400, error: 'invalid duration' };
+   }
+   return { status: 200, duration: `${ms}ms` };
