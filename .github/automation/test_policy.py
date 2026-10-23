@@ -13,10 +13,13 @@ import publish
 import run
 
 
-def request(maintenance=False):
-    return {'number': 18, 'title': 'Policy checks', 'body': 'Acceptance criteria',
-            'base': 'a' * 40, 'allow_maintenance': maintenance,
+def request(maintenance=None):
+    data = {'number': 18, 'title': 'Policy checks', 'body': 'Acceptance criteria',
+            'base': 'a' * 40,
             'branch': 'feat/automated-' + hashlib.sha256(b'node').hexdigest()[:16]}
+    if maintenance is not None:
+        data['allow_maintenance'] = maintenance
+    return data
 
 
 class PolicyTests(unittest.TestCase):
@@ -27,6 +30,18 @@ class PolicyTests(unittest.TestCase):
             for flag in [False, True]:
                 self.assertTrue(run.allowed(path, flag))
                 self.assertEqual(run.changes({}, {path: b'dummy'}, flag)[0]['path'], path)
+
+    def test_omitted_and_legacy_maintenance_fields_allow_the_same_proposals(self):
+        files = [{'path': path, 'content': 'proposal'} for path in [
+            'AGENTS.md', 'package.json', 'pnpm-lock.yaml',
+            '.github/workflows/ci.yml', '.npmrc']]
+        checks = dict.fromkeys(run.CHECKS + [policy.AUTOMATION_CHECK], 0)
+        expected = policy.report(request(), files)
+        for data in [request(), request(False), request(True)]:
+            with self.subTest(maintenance=data.get('allow_maintenance')):
+                self.assertEqual(policy.report(data, files), expected)
+                self.assertEqual(publish.validate({'files': files, 'checks': checks},
+                                                 data.get('allow_maintenance', False)), files)
 
     def test_rejects_unsafe_paths(self):
         for path in ['../x', '/x', 'a/../x', 'a//b', '.git/config', 'a/.GIT/x',
@@ -122,7 +137,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_maintenance_proposal_creates_only_a_draft_after_checks(self):
         with tempfile.TemporaryDirectory() as root:
-            data = request(True)
+            data = request()
             Path(root, 'issue.json').write_text(json.dumps(data))
             Path(root, 'proposal.json').write_text(json.dumps({
                 'pr_title': 'docs: 開発ルールを明文化する',
