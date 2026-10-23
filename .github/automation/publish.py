@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 
 from run import CHECKS
-from policy import AUTOMATION_CHECK, PolicyError, report, validate_files, validate_issue, validate_request
+from policy import AUTOMATION_CHECK, PolicyError, report, validate_files, validate_issue, validate_request, maintenance_path, MAX_PROPOSAL_BYTES
 
 
 def validate(proposal, maintenance=False):
@@ -15,7 +15,7 @@ def validate(proposal, maintenance=False):
     validate_files(files, maintenance)
     if not files:
         return []
-    expected = dict.fromkeys(CHECKS + ([AUTOMATION_CHECK] if maintenance else []), 0)
+    expected = dict.fromkeys(CHECKS + ([AUTOMATION_CHECK] if any(maintenance_path(item['path']) for item in files) else []), 0)
     if checks != expected or any(type(value) is not int for value in checks.values()):
         raise PolicyError('independent_checks_failed')
     return files
@@ -37,11 +37,11 @@ def pr_body(request, files):
     run_url = 'https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID']
     body = (f'## 変更概要\n\nIssue #{number} の要件に基づく自動実装です。差分を人間がレビューしてください。\n\n'
             f'## 関連Issue\n\nCloses #{number}\n\n## 実装内容\n\n'
-            + '\n'.join('- `' + item['path'] + '`' for item in files)
+            + '\n'.join('- ' + json.dumps(item['path'], ensure_ascii=True) for item in files)
             + '\n\n## 実行したテスト\n\n'
             + '\n'.join('- `pnpm ' + check + '`: 成功（独立コンテナで終了コード0）' for check in CHECKS)
             + ('\n- Python自動化テスト（変更前の境界テスト・候補テスト）: 成功（独立コンテナで終了コード0）'
-               if request.get('allow_maintenance', False) else '')
+               if any(maintenance_path(item['path']) for item in files) else '')
             + '\n\n## テスト結果\n\n独立チェックはすべて終了コード0でした。\n\n`pnpm test`のUnit・Integration → Build → CLI E2Eの順序は変更していません。'
             + '\n\n## 未検証事項\n\n受け入れ条件全体の充足は人間による確認が必要です。'
             + '実サービス接続、Windows/macOS、ネットワークが必要な追加検証は未実施です。'
@@ -57,7 +57,7 @@ def pr_body(request, files):
 def main():
     request = json.loads(Path(os.environ['REQUEST_PATH']).read_text())
     proposal_path = Path(os.environ['OUTPUT_PATH']) / 'proposal.json'
-    if proposal_path.is_symlink() or proposal_path.stat().st_size > 500_000:
+    if proposal_path.is_symlink() or proposal_path.stat().st_size > MAX_PROPOSAL_BYTES:
         raise ValueError('Invalid proposal size/type')
     proposal = json.loads(proposal_path.read_text())
     validate_request(request)
@@ -78,10 +78,18 @@ def main():
     body = pr_body(request, files)
     policy_report = report(request, files, body)
     print('stage=repository_policy status=' + policy_report['status'] + ' semantic_scope=unverified')
+    entries = []
+    for item in files:
+        entry = {'path': item['path'], 'mode': item.get('mode', '100644'), 'type': 'blob'}
+        if item['content'] is None:
+            entry['sha'] = None
+        elif item.get('encoding') == 'base64':
+            entry['sha'] = api('POST', '/git/blobs', {'content': item['content'], 'encoding': 'base64'})['sha']
+        else:
+            entry['content'] = item['content']
+        entries.append(entry)
     tree = api('POST', '/git/trees', {
-        'base_tree': api('GET', f'/git/commits/{base}')['tree']['sha'],
-        'tree': [dict(path=item['path'], mode='100644', type='blob',
-                      **({'sha': None} if item['content'] is None else {'content': item['content']})) for item in files]})
+        'base_tree': api('GET', f'/git/commits/{base}')['tree']['sha'], 'tree': entries})
     message = f'feat: implement requested changes\n\nCloses #{number}\n\nLatch automated proposal'
     commit = api('POST', '/git/commits', {'message': message, 'tree': tree['sha'], 'parents': [base]})
     try:
