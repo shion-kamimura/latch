@@ -5,6 +5,7 @@ import hashlib
 import json
 import posixpath
 import re
+import unicodedata
 
 AUTOMATION_CHECK = 'automation'
 REQUIRED_SECTIONS = ['変更概要', '関連Issue', '実装内容', '実行したテスト', 'テスト結果', '未検証事項']
@@ -38,6 +39,22 @@ def safe_path(path):
     if secret_present(path):
         return '[redacted path]'
     return json.dumps(path[:1024], ensure_ascii=True)
+
+
+def validate_pr_title(title):
+    # Titles are untrusted text for the GitHub API, never shell/code input.
+    if (not isinstance(title, str) or not 1 <= len(title) <= 256
+            or any(unicodedata.category(char).startswith('C') or
+                   unicodedata.category(char) in {'Zl', 'Zp'} for char in title)):
+        raise PolicyError('invalid_pr_title')
+    match = re.fullmatch(r'(feat|fix|docs|refactor|test|ci|chore): (\S(?:.*\S)?)', title)
+    if not match or match[2] != match[2].strip():
+        raise PolicyError('invalid_pr_title')
+    if re.fullmatch(r'(?:(?:implement\s+)?Issue\s*)?#\d+|implement requested changes', match[2], re.IGNORECASE):
+        raise PolicyError('invalid_pr_title')
+    if secret_present(title):
+        raise PolicyError('invalid_pr_title')
+    return title
 
 
 def allowed(path, maintenance=False):

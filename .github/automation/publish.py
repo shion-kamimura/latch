@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 
 from run import CHECKS
-from policy import AUTOMATION_CHECK, PolicyError, report, validate_files, validate_issue, validate_request, maintenance_path, MAX_PROPOSAL_BYTES
+from policy import AUTOMATION_CHECK, PolicyError, report, validate_files, validate_issue, validate_pr_title, validate_request, maintenance_path, MAX_PROPOSAL_BYTES
 
 
 def validate(proposal, maintenance=False):
@@ -97,6 +97,7 @@ def main():
     if not files:
         print('No changes; no PR created.')
         return
+    title = validate_pr_title(proposal.get('pr_title'))
     base, branch, number = request['base'], request['branch'], request['number']
     issue = api('GET', f'/issues/{number}')
     drift = validate_issue(request, issue)
@@ -107,7 +108,7 @@ def main():
     marker = '<!-- latch-owner:' + issue['node_id'] + ' -->'
     proposal_id = hashlib.sha256(json.dumps({'source': source, 'request': request, 'proposal': proposal},
                                            sort_keys=True).encode()).hexdigest()
-    message = f'feat: continue Issue #{number} proposal\n\nlatch-proposal:{proposal_id}\n' + marker
+    message = f'{title}\n\nlatch-proposal:{proposal_id}\n' + marker
     try:
         current = api('GET', '/git/ref/heads/' + branch)['object']['sha']
     except urllib.error.HTTPError as error:
@@ -166,11 +167,11 @@ def main():
         if latest != commit['sha']:
             raise ValueError('Branch changed after publication; preserve artifact and inspect')
     if open_pr:
-        result = api('PATCH', '/pulls/' + str(open_pr['number']), {'body': body})
+        result = api('PATCH', '/pulls/' + str(open_pr['number']), {'title': title, 'body': body})
     else:
         try:
             result = api('POST', '/pulls', {'head': branch, 'base': 'main', 'draft': True,
-                                           'title': f'feat: implement Issue #{number}', 'body': body})
+                                           'title': title, 'body': body})
         except urllib.error.HTTPError as error:
             if error.code != 422:
                 raise

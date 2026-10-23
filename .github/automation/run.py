@@ -18,7 +18,7 @@ import time
 import uuid
 
 from gateway import MAX_BYTES, MAX_CONTEXT, MAX_OUTPUT, MAX_REQUESTS, MAX_RESERVED, cost_config, model_config
-from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_request, validate_link, MAX_FILE_BYTES, maintenance_path
+from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_pr_title, validate_request, validate_link, MAX_FILE_BYTES, maintenance_path
 
 AGENT_TIMEOUT = 3600
 
@@ -409,7 +409,34 @@ def agent_prompt(request):
             'Run pnpm lint, pnpm typecheck, pnpm format:check, pnpm test, pnpm build; repair failures. '
             'For automation changes also run python3 -B -m unittest discover -s .github/automation -p "test_*.py". '
             'Build before testing the built CLI. Record reversible implementation assumptions and proceed within scope. The host independently verifies final files using trusted base policy. '
+            'As soon as the primary change is clear, write dist/latch-pr-title.json as a JSON object with only the title key. '
+            'Refresh the title after implementation and tests, including when retaining partial work. '
+            'This ignored build artifact is proposal metadata, not a source change. '
+            'Choose a PR title describing the actual primary change: <type>: <specific change>. '
+            'Use feat (new behavior), fix (bug repair), docs (documentation), refactor (structure without behavior changes), '
+            'test (tests), ci (CI), or chore (development tooling/maintenance). '
+            'Examples: docs: Issue登録時の追加承認を不要にする; fix: 未対応引数で終了コード1を返す; '
+            'feat: PRの要件を抽出する. Do not default to feat for documentation or bug fixes. '
+            'Use one line, at most 256 characters, no control characters, and a nonempty description. '
+            'Do not use implement Issue #number or an Issue number alone as the description. '
+            'Link the Issue in the PR body; its number is not required in the title. '
             'Passing tests does not prove semantic Issue scope or approval compliance; leave these to human review.')
+
+
+def read_pr_title(work):
+    # dist is already ignored by source snapshots; no additional writable mount or allowed path.
+    directory = work / 'dist'
+    path = directory / 'latch-pr-title.json'
+    try:
+        if (directory.is_symlink() or path.is_symlink() or not path.is_file()
+                or path.stat().st_size > 4096):
+            raise PolicyError('invalid_pr_title')
+        metadata = json.loads(path.read_text(encoding='utf-8'))
+    except (ValueError, OSError):
+        raise PolicyError('invalid_pr_title') from None
+    if not isinstance(metadata, dict) or set(metadata) != {'title'}:
+        raise PolicyError('invalid_pr_title')
+    return validate_pr_title(metadata['title'])
 
 
 def automation_command(work, control, name):
@@ -451,12 +478,12 @@ def independent_check(command, log_path, container):
         stop_container(container)
 
 
-def save_proposal(output, before, work, generated, files, checks, implementation):
+def save_proposal(output, before, work, generated, files, checks, implementation, pr_title=None):
     # Both successful and partial proposals must pass exactly the same safety gate.
     if snapshot(work) != generated:
         raise PolicyError('source_changed')
     validate_files(files)
-    value = {'schema_version': 2, 'files': files, 'checks': checks, 'implementation': implementation}
+    value = {'schema_version': 2, 'files': files, 'checks': checks, 'implementation': implementation, 'pr_title': pr_title}
     Path(output, 'proposal.json').write_text(json.dumps(value) + '\n')
     return value
 
@@ -615,6 +642,13 @@ def main():
             policy_report = report(request, files)
             (output / 'policy.json').write_text(json.dumps(policy_report, indent=2) + '\n')
             print('stage=repository_policy status=passed semantic_scope=unverified', flush=True)
+            pr_title = None
+            title_error = None
+            if files:
+                try:
+                    pr_title = read_pr_title(work)
+                except PolicyError as error:
+                    title_error = error
             checks = {check: check_result() for check in CHECKS}
             checks['dependencies'] = check_result()
             dependency_name = name + '-install'
@@ -651,12 +685,14 @@ def main():
                     containers.append(verifier)
                     checks[AUTOMATION_CHECK] = independent_check(automation_command(work, control, verifier),
                                                                  Path(temporary) / 'automation.log', verifier)
-            save_proposal(output, before, work, generated, files, checks, implementation)
+            save_proposal(output, before, work, generated, files, checks, implementation, pr_title)
             passed = all(item['status'] == 'passed' or item['reason'] == 'covered_by_test' for item in checks.values())
-            outcome = 'proposal_ready' if passed and implementation == 'completed' else 'partial_proposal'
+            outcome = 'proposal_ready' if passed and implementation == 'completed' and title_error is None else 'partial_proposal'
             if not files:
                 outcome = 'no_changes' if implementation == 'completed' else 'failed'
             print('stage=proposal status=' + outcome, flush=True)
+            if title_error is not None:
+                raise title_error
             if outcome not in {'proposal_ready', 'no_changes'}:
                 raise ValueError('stage=proposal error=partial_results')
         except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:

@@ -79,6 +79,12 @@ https://github.com/shion-kamimura/latch の最新の docs/issue-design.md を参
 
 ### 実装と検証
 
+Issueタイトルには解決したい課題・期待する動作を簡潔・具体的に書き、`[Feature]` などの種別接頭辞は必須にしません。種類は `enhancement`・`bug`・`documentation` などの既存ラベルで分類します。[種別ラベルの対応](docs/issue-design.md#issueの種別ラベル) を参照してください。
+
+手動・AI・自動生成のPRタイトルは `<type>: <具体的な変更内容>` に統一します。主目的に合わせて `feat`（機能追加）、`fix`（不具合修正）、`docs`（文書）、`refactor`（動作を変えない構造整理）、`test`（テスト）、`ci`（CI）、`chore`（開発環境・保守）を選びます。例は `docs: Issue登録時の追加承認を不要にする`、`fix: 未対応引数で終了コード1を返す`、`feat: PRの要件を抽出する` です。関連Issueは本文の `Closes #番号` などで紐づけ、タイトルのIssue番号は必須にしません。
+
+Conventional Commitsは本来コミットメッセージの規約ですが、Latchではその形式をPRタイトルにも採用しています。これはリポジトリの方針であり、業界共通の必須規格ではありません。詳細は [AGENTS.md](AGENTS.md) を参照してください。
+
 依頼された実装は、必要な確認・検証の後、専用ブランチへのコミット・push・Draft PR作成まで追加承認なしに進め、変更内容・検証結果・未検証事項とURLを報告します。利用者による作成範囲の指定を優先し、レビュー承認・マージ・デプロイや権限・Secrets変更は別に扱います。実行プラットフォーム側の承認・認証制約は [AGENTS.md](AGENTS.md) の運用変更では無効化できません。
 
 IssueからOpenCode / DeepSeekで実装・検証し、Draft PRを作成する手動ワークフローは [IssueからDraft PRを作成する](docs/issue-draft-pr.md) を参照してください。

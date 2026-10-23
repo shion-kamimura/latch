@@ -102,8 +102,9 @@ class PolicyTests(unittest.TestCase):
             with self.subTest(changed_issue=changed_issue), tempfile.TemporaryDirectory() as root:
                 Path(root, 'issue.json').write_text(json.dumps(request()))
                 Path(root, 'proposal.json').write_text(json.dumps({
+                    'pr_title': 'feat: 要求と変更可能範囲を検査する',
                     'files': [{'path': 'src/a.ts', 'content': 'x'}],
-                    'checks': dict.fromkeys(run.CHECKS, 0)}))
+                    'checks': dict.fromkeys(run.CHECKS, 0), 'pr_title': 'feat: APIの動作を実装する'}))
                 def api(method, path, data=None):
                     self.assertEqual(method, 'GET', 'Policy must run before the first GitHub write')
                     if path.startswith('/issues/'):
@@ -124,8 +125,9 @@ class PolicyTests(unittest.TestCase):
             data = request(True)
             Path(root, 'issue.json').write_text(json.dumps(data))
             Path(root, 'proposal.json').write_text(json.dumps({
+                'pr_title': 'docs: 開発ルールを明文化する',
                 'files': [{'path': 'AGENTS.md', 'content': 'Reviewed proposal'}],
-                'checks': dict.fromkeys(run.CHECKS + [policy.AUTOMATION_CHECK], 0)}))
+                'checks': dict.fromkeys(run.CHECKS + [policy.AUTOMATION_CHECK], 0), 'pr_title': 'docs: 開発ルールを更新する'}))
             writes = []
             def api(method, path, body=None):
                 if method == 'GET':
