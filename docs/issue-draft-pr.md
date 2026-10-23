@@ -12,7 +12,9 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、IssueをOpenC
 4. **Issue to Draft PR** → **Run workflow** でmainと開いたIssue番号を指定します。実行者・再実行者はwrite / maintain / admin権限が必要です。Issue本文やラベルでは起動しません。
 5. Draft PRの差分、検証結果、未検証事項をレビューします。テスト成功は要件全体の充足を証明しません。
 
-`allow_maintenance` は旧呼び出しとの互換性のため残るboolean入力です。true / falseとも提案可能範囲は同じで、新しい起動時には指定不要です。#18 / PR #19の保守許可ゲートは #34で見直しました。変更後の権限やポリシーの適用承認ではありません。
+通常実行の入力はIssue番号だけです。設定・依存・CI・開発ルールを含む従来の変更範囲を、追加の保守許可なしにDraft PRへ提案できます。#18 / PR #19の保守許可ゲートは #34で見直し、`allow_maintenance` 入力も削除しました。PRのマージ、権限・Secrets変更、実行中の安全境界の変更への許可ではありません。
+
+旧dispatch呼び出しは `allow_maintenance` の指定を削除してください。GitHub CLIでは `-f allow_maintenance=...` や `-F allow_maintenance=...` を除き、例えば `gh workflow run issue-draft-pr.yml --ref main -f issue_number=51` とします。REST APIのdispatchでは `inputs` から同キーを除き、`{"ref":"main","inputs":{"issue_number":"51"}}` のように送ります。過去のrequest artifactに含まれる任意のbooleanフィールド `allow_maintenance` は引き続き受理しますが、true / false / 省略で提案可能範囲は変わりません。これは削除済みのdispatch入力を引き続き送れるという意味ではありません。
 
 ### 自動生成PRのタイトル
 

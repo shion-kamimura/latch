@@ -7,11 +7,6 @@ on:
         description: Open Issue number to implement
         required: true
         type: string
-      allow_maintenance:
-        description: Deprecated compatibility input; repository changes can be proposed without this flag
-        required: true
-        default: false
-        type: boolean
 
 permissions: {}
 
@@ -39,7 +34,6 @@ jobs:
         id: issue
         env:
           ISSUE_NUMBER: ${{ inputs.issue_number }}
-          ALLOW_MAINTENANCE: ${{ inputs.allow_maintenance }}
         with:
           script: |
             const {default: prepare} = await import(require('node:url').pathToFileURL(process.cwd() + '/.github/automation/prepare.mjs').href);

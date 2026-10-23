@@ -23,6 +23,7 @@ async function scenario({
   const oldEnv = { ...process.env };
   try {
     process.chdir(directory);
+    delete process.env.ALLOW_MAINTENANCE;
     Object.assign(process.env, {
       ISSUE_NUMBER: '7',
       GITHUB_RUN_ATTEMPT: '2',
@@ -123,4 +124,14 @@ test('stranded owned branch from failed PR API can resume', async () => {
   assert.equal(request.branch, canonical);
   assert.equal(request.source, 'b'.repeat(40));
   assert.equal(request.expected_head, request.source);
+});
+
+test('Issue number alone prepares a fresh request without maintenance input', async () => {
+  const request = await scenario({ existing: false });
+  assert.equal(request.number, 7);
+  assert.equal(request.branch, canonical);
+  assert.equal(request.base, 'a'.repeat(40));
+  assert.equal(request.source, request.base);
+  assert.equal(request.expected_head, null);
+  assert.equal(Object.hasOwn(request, 'allow_maintenance'), false);
 });
