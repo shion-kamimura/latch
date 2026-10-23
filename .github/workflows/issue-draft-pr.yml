@@ -29,7 +29,12 @@ jobs:
       pull-requests: read
     outputs:
       base: ${{ steps.issue.outputs.base }}
+      source: ${{ steps.issue.outputs.source }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/github-script@v7
         id: issue
         env:
@@ -37,25 +42,8 @@ jobs:
           ALLOW_MAINTENANCE: ${{ inputs.allow_maintenance }}
         with:
           script: |
-            const fs = require('node:fs');
-            const crypto = require('node:crypto');
-            if (context.ref !== 'refs/heads/main') throw new Error('Run only from main');
-            if (!/^[1-9][0-9]{0,8}$/.test(process.env.ISSUE_NUMBER)) throw new Error('Invalid Issue number');
-            const repo = context.repo;
-            for (const username of new Set([context.actor, process.env.GITHUB_TRIGGERING_ACTOR])) {
-              const {data} = await github.rest.repos.getCollaboratorPermissionLevel({...repo, username});
-              if (!['admin', 'maintain', 'write'].includes(data.permission)) throw new Error('Write permission required');
-            }
-            const {data: issue} = await github.rest.issues.get({...repo, issue_number: Number(process.env.ISSUE_NUMBER)});
-            if (issue.pull_request || issue.state !== 'open') throw new Error('An open Issue is required');
-            const branch = 'feat/automated-' + crypto.createHash('sha256').update(issue.node_id).digest('hex').slice(0, 16);
-            const prs = await github.paginate(github.rest.pulls.list, {...repo, state: 'all', head: `${repo.owner}:${branch}`, per_page: 100});
-            if (prs.length) throw new Error(`PR already exists: ${prs[0].html_url}`);
-            const {data: ref} = await github.rest.git.getRef({...repo, ref: 'heads/main'});
-            fs.mkdirSync('request', {recursive: true});
-            if (!['true', 'false'].includes(process.env.ALLOW_MAINTENANCE)) throw new Error('Invalid maintenance approval');
-            fs.writeFileSync('request/issue.json', JSON.stringify({number: issue.number, title: issue.title, body: issue.body || '', branch, base: ref.object.sha, allow_maintenance: process.env.ALLOW_MAINTENANCE === 'true'}));
-            core.setOutput('base', ref.object.sha);
+            const {default: prepare} = await import(require('node:url').pathToFileURL(process.cwd() + '/.github/automation/prepare.mjs').href);
+            await prepare({github, context, core});
       - uses: actions/upload-artifact@v4
         with:
           name: issue-request
@@ -64,6 +52,8 @@ jobs:
 
   implement:
     needs: prepare
+    outputs:
+      proposal_ready: ${{ steps.proposal.outputs.ready }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -73,17 +63,25 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.base }}
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source }}
+          path: candidate-input
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: issue-request
           path: ${{ runner.temp }}/request
       - name: Build pinned agent tools (no API key)
         run: docker build -f .github/automation/Dockerfile -t latch-agent .
+      - name: Build trusted API gateway without secrets
+        run: docker build -f .github/automation/Dockerfile.gateway -t latch-gateway .
       - name: Verify OpenCode startup without secrets or network
         run: docker run --rm --network none --cap-drop=ALL --security-opt=no-new-privileges --read-only --tmpfs /tmp:rw,nosuid,size=512m -e XDG_DATA_HOME=/tmp/xdg/data -e XDG_CONFIG_HOME=/tmp/xdg/config -e XDG_CACHE_HOME=/tmp/xdg/cache -e XDG_STATE_HOME=/tmp/xdg/state latch-agent opencode --version
       - name: Implement, repair, and independently verify in containers
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          CANDIDATE_PATH: ${{ github.workspace }}/candidate-input
           REQUEST_PATH: ${{ runner.temp }}/request/issue.json
           OUTPUT_PATH: ${{ runner.temp }}/proposal
         run: python3 .github/automation/run.py
@@ -97,7 +95,15 @@ jobs:
             ${{ runner.temp }}/proposal/policy.json
           if-no-files-found: warn
           retention-days: 14
+      - name: Check safe proposal availability
+        id: proposal
+        if: always()
+        env:
+          PROPOSAL_PATH: ${{ runner.temp }}/proposal/proposal.json
+        run: |
+          if [ -f "$PROPOSAL_PATH" ]; then echo 'ready=true' >> "$GITHUB_OUTPUT"; fi
       - uses: actions/upload-artifact@v4
+        if: always() && steps.proposal.outputs.ready == 'true'
         with:
           name: issue-proposal
           path: ${{ runner.temp }}/proposal/proposal.json
@@ -106,6 +112,7 @@ jobs:
 
   publish:
     needs: [prepare, implement]
+    if: always() && needs.prepare.result == 'success' && needs.implement.outputs.proposal_ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

@@ -1,5 +1,6 @@
 """Only trusted code runs in this job. Treat the proposal as hostile data."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,9 +16,30 @@ def validate(proposal, maintenance=False):
     validate_files(files, maintenance)
     if not files:
         return []
-    expected = dict.fromkeys(CHECKS + ([AUTOMATION_CHECK] if any(maintenance_path(item['path']) for item in files) else []), 0)
-    if checks != expected or any(type(value) is not int for value in checks.values()):
-        raise PolicyError('independent_checks_failed')
+    expected_names = CHECKS + ([AUTOMATION_CHECK] if any(maintenance_path(item['path']) for item in files) else [])
+    if proposal.get('schema_version') == 2:
+        if (set(checks) != set(expected_names + ['dependencies'])
+                or proposal.get('implementation') not in {'completed', 'timeout', 'api_error', 'startup_error',
+                   'abnormal_exit', 'agent_error', 'configuration_error', 'model_configuration_error',
+                   'provider_initialization_error', 'host_io_error'}):
+            raise PolicyError('invalid_results')
+        for result in checks.values():
+            if (not isinstance(result, dict) or set(result) != {'status', 'exit_code', 'reason'}
+                    or result['status'] not in {'passed', 'failed', 'timeout', 'not_run', 'environment_unavailable'}
+                    or result['reason'] not in {'not_started', 'exit_code', 'time_limit', 'host_io_error',
+                       'covered_by_test', 'dependency_mismatch', 'registry_denied', 'dependency_fetch_failed',
+                       'install_script_failed', 'validation_timeout', 'host_validation_failed'}):
+                raise PolicyError('invalid_results')
+            code = result['exit_code']
+            if result['status'] in {'passed', 'failed'}:
+                if type(code) is not int or not -255 <= code <= 255 or (result['status'] == 'passed') != (code == 0):
+                    raise PolicyError('invalid_results')
+            elif code is not None:
+                raise PolicyError('invalid_results')
+    else:
+        expected = dict.fromkeys(expected_names, 0)
+        if checks != expected or any(type(value) is not int for value in checks.values()):
+            raise PolicyError('independent_checks_failed')
     return files
 
 
@@ -32,26 +54,36 @@ def api(method, path, data=None):
         return json.load(response)
 
 
-def pr_body(request, files):
+def pr_body(request, files, proposal=None):
     number = request['number']
     run_url = 'https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID']
-    body = (f'## 変更概要\n\nIssue #{number} の要件に基づく自動実装です。差分を人間がレビューしてください。\n\n'
+    checks = proposal.get('checks', {}) if proposal else dict.fromkeys(CHECKS, 0)
+    implementation = (proposal or {}).get('implementation', 'completed')
+    results = []
+    for name, value in checks.items():
+        if isinstance(value, dict):
+            results.append('- ' + name + ': ' + value['status'] + ' / ' + value['reason'] +
+                           (' / exit=' + str(value['exit_code']) if value['exit_code'] is not None else ''))
+        else:
+            results.append('- ' + name + ': passed / exit=0')
+    return (f'## 変更概要\n\nIssue #{number} に対する提案。実装状態: {implementation}。未完了成果を含み得ます。\n\n'
             f'## 関連Issue\n\nCloses #{number}\n\n## 実装内容\n\n'
             + '\n'.join('- ' + json.dumps(item['path'], ensure_ascii=True) for item in files)
-            + '\n\n## 実行したテスト\n\n'
-            + '\n'.join('- `pnpm ' + check + '`: 成功（独立コンテナで終了コード0）' for check in CHECKS)
-            + ('\n- Python自動化テスト（変更前の境界テスト・候補テスト）: 成功（独立コンテナで終了コード0）'
-               if any(maintenance_path(item['path']) for item in files) else '')
-            + '\n\n## テスト結果\n\n独立チェックはすべて終了コード0でした。\n\n`pnpm test`のUnit・Integration → Build → CLI E2Eの順序は変更していません。'
-            + '\n\n## 未検証事項\n\n受け入れ条件全体の充足は人間による確認が必要です。'
-            + '実サービス接続、Windows/macOS、ネットワークが必要な追加検証は未実施です。'
-            + '生成したテスト自体の妥当性もレビューしてください。'
-            + 'Issueとの意味的整合、受け入れ条件全体、設計・依存・権限変更の事前承認は未検証です。'
-            + '保守変更は提案データとして扱い、変更前の信頼したポリシーで検証しています。'
-            + 'ワークフロー権限・自動化の安全性は人間の承認前に適用しないでください。'
-            + f'\n\n[実行ログ]({run_url})\n\nGITHUB_TOKENで作成したPRは通常のPR CIを自動起動しません。'
-            + 'この実行の検証結果を確認し、必要なら人間がブランチを更新して通常CIも実行してください。')
-    return body
+            + '\n\n## 検証結果\n\n' + '\n'.join(results)
+            + '\n\n## 未検証事項\n\n実行済みの成功・失敗・未実行は上記の通りです。'
+            + 'Issueとの意味的整合、受け入れ条件全体、生成テストの妥当性、実サービス接続は未検証です。'
+            + '候補の安全性・ワークフロー権限は人間がレビューしてください。変更前の信頼した制御を使用しました。'
+            + f'\n\n[実行ログ]({run_url})。GITHUB_TOKENによるPRは通常CIを自動起動しません。')
+
+
+def list_prs(owner, branch):
+    result = []
+    for page in range(1, 101):
+        items = api('GET', f'/pulls?state=all&head={owner}:{branch}&per_page=100&page={page}')
+        result.extend(items)
+        if len(items) < 100:
+            return result
+    raise ValueError('PR history exceeds supported lookup limit')
 
 
 def main():
@@ -67,44 +99,86 @@ def main():
         return
     base, branch, number = request['base'], request['branch'], request['number']
     issue = api('GET', f'/issues/{number}')
-    validate_issue(request, issue)
+    drift = validate_issue(request, issue)
     owner = os.environ['GITHUB_REPOSITORY'].split('/')[0]
-    existing = api('GET', f'/pulls?state=all&head={owner}:{branch}&per_page=100')
-    if existing:
-        print('PR already exists; no duplicate created.')
-        return
-    if api('GET', '/git/ref/heads/main')['object']['sha'] != base:
-        raise ValueError('main changed during implementation; rerun from the current main')
-    body = pr_body(request, files)
-    policy_report = report(request, files, body)
-    print('stage=repository_policy status=' + policy_report['status'] + ' semantic_scope=unverified')
-    entries = []
-    for item in files:
-        entry = {'path': item['path'], 'mode': item.get('mode', '100644'), 'type': 'blob'}
-        if item['content'] is None:
-            entry['sha'] = None
-        elif item.get('encoding') == 'base64':
-            entry['sha'] = api('POST', '/git/blobs', {'content': item['content'], 'encoding': 'base64'})['sha']
-        else:
-            entry['content'] = item['content']
-        entries.append(entry)
-    tree = api('POST', '/git/trees', {
-        'base_tree': api('GET', f'/git/commits/{base}')['tree']['sha'], 'tree': entries})
-    message = f'feat: implement requested changes\n\nCloses #{number}\n\nLatch automated proposal'
-    commit = api('POST', '/git/commits', {'message': message, 'tree': tree['sha'], 'parents': [base]})
+    existing = list_prs(owner, branch)
+    expected_head = request.get('expected_head')
+    source = request.get('source', base)
+    marker = '<!-- latch-owner:' + issue['node_id'] + ' -->'
+    proposal_id = hashlib.sha256(json.dumps({'source': source, 'request': request, 'proposal': proposal},
+                                           sort_keys=True).encode()).hexdigest()
+    message = f'feat: continue Issue #{number} proposal\n\nlatch-proposal:{proposal_id}\n' + marker
     try:
-        ref = api('GET', '/git/ref/heads/' + branch)
+        current = api('GET', '/git/ref/heads/' + branch)['object']['sha']
     except urllib.error.HTTPError as error:
         if error.code != 404:
             raise
-        api('POST', '/git/refs', {'ref': 'refs/heads/' + branch, 'sha': commit['sha']})
+        current = None
+    old = api('GET', '/commits/' + current) if current else None
+    owned = bool(old and old.get('committer', {}).get('login') == 'github-actions[bot]'
+                 and old['commit']['message'].endswith(marker))
+    recovered = bool(owned and old['commit']['message'] == message
+                     and [parent['sha'] for parent in old['parents']] == [source])
+    if current != expected_head and not recovered:
+        raise ValueError('Automation branch changed; preserve artifact and rerun without overwriting')
+    if current and not owned:
+        raise ValueError('Human changes detected; preserve artifact and rerun into a separate proposal')
+    if expected_head and source != expected_head:
+        raise ValueError('Source does not match the observed branch head')
+    open_pr = next((pr for pr in existing if pr['state'] == 'open'), None)
+    if open_pr:
+        if (not open_pr.get('draft') or open_pr.get('user', {}).get('login') != 'github-actions[bot]'
+                or marker not in (open_pr.get('body') or '')
+                or open_pr.get('head', {}).get('sha') != (current if recovered else expected_head)):
+            raise ValueError('Existing PR is not an unchanged owned draft; preserve artifact and rerun')
+    elif existing:
+        raise ValueError('Proposal branch has closed history; rerun to select a new revision branch')
+    body = pr_body(request, files, proposal)
+    if drift in {'changed', 'closed'}:
+        body = body.replace(f'Closes #{number}', f'Refs #{number}')
+    digest = hashlib.sha256(json.dumps([request['title'], request['body']], ensure_ascii=False).encode()).hexdigest()
+    body += (f'\n\n要求スナップショットSHA256: {digest}\n'
+             f'制御base: {base} / 検証入力commit: {source} / Issue状態差異: {drift}\n'
+             '検証は上記入力に限られ、最新mainとの統合・変更後の要求充足は未検証です。\n' + marker)
+    report(request, files, body)
+    if not recovered:
+        entries = []
+        for item in files:
+            entry = {'path': item['path'], 'mode': item.get('mode', '100644'), 'type': 'blob'}
+            if item['content'] is None:
+                entry['sha'] = None
+            elif item.get('encoding') == 'base64':
+                entry['sha'] = api('POST', '/git/blobs', {'content': item['content'], 'encoding': 'base64'})['sha']
+            else:
+                entry['content'] = item['content']
+            entries.append(entry)
+        tree = api('POST', '/git/trees', {
+            'base_tree': api('GET', f'/git/commits/{source}')['tree']['sha'], 'tree': entries})
+        commit = api('POST', '/git/commits', {'message': message, 'tree': tree['sha'], 'parents': [source]})
+        if current is None:
+            api('POST', '/git/refs', {'ref': 'refs/heads/' + branch, 'sha': commit['sha']})
+        else:
+            # Parent is exactly the observed tip; force=false rejects concurrent divergence.
+            if source != current:
+                raise ValueError('Source does not match the observed branch head')
+            api('PATCH', '/git/refs/heads/' + branch, {'sha': commit['sha'], 'force': False})
+        latest = api('GET', '/git/ref/heads/' + branch)['object']['sha']
+        if latest != commit['sha']:
+            raise ValueError('Branch changed after publication; preserve artifact and inspect')
+    if open_pr:
+        result = api('PATCH', '/pulls/' + str(open_pr['number']), {'body': body})
     else:
-        # Recover a prior create-PR failure without overwriting human changes.
-        old = api('GET', '/git/commits/' + ref['object']['sha'])
-        if old['tree']['sha'] != tree['sha'] or old['message'] != message or [p['sha'] for p in old['parents']] != [base]:
-            raise ValueError('Existing automation branch differs; inspect manually before retrying')
-    result = api('POST', '/pulls', {'head': branch, 'base': 'main', 'draft': True,
-                                   'title': f'feat: implement Issue #{number}', 'body': body})
+        try:
+            result = api('POST', '/pulls', {'head': branch, 'base': 'main', 'draft': True,
+                                           'title': f'feat: implement Issue #{number}', 'body': body})
+        except urllib.error.HTTPError as error:
+            if error.code != 422:
+                raise
+            matches = [pr for pr in list_prs(owner, branch) if pr['state'] == 'open' and pr.get('draft')
+                       and marker in (pr.get('body') or '') and pr.get('user', {}).get('login') == 'github-actions[bot]']
+            if len(matches) != 1:
+                raise ValueError('Concurrent PR creation could not be reconciled') from None
+            result = matches[0]
     print('Draft PR: ' + result['html_url'])
 
 
