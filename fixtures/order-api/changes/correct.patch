@@ -1,0 +1,53 @@
+diff --git a/src/api.ts b/src/api.ts
+index 3798a86..5fc1eed 100644
+--- a/src/api.ts
++++ b/src/api.ts
+@@ -1,7 +1,17 @@
+-import type { IncomingMessage, ServerResponse } from 'node:http';
+-
+ export const MAX_UNITS_PER_LINE = 10;
+ 
++export interface RequestLike {
++  method?: string;
++  url?: string;
++  [Symbol.asyncIterator](): AsyncIterator<unknown>;
++}
++
++export interface ResponseLike {
++  statusCode: number;
++  setHeader(name: string, value: string): void;
++  end(body?: string): void;
++}
++
+ export interface OrderLine {
+   sku: string;
+   quantity: number;
+@@ -100,8 +110,8 @@ interface Response {
+ }
+ 
+ export async function handleRequest(
+-  req: IncomingMessage,
+-  res: ServerResponse,
++  req: RequestLike,
++  res: ResponseLike,
+ ): Promise<void> {
+   const result = await route(req);
+   res.statusCode = result.status;
+@@ -109,7 +119,7 @@ export async function handleRequest(
+   res.end(JSON.stringify(result.body));
+ }
+ 
+-async function route(req: IncomingMessage): Promise<Response> {
++async function route(req: RequestLike): Promise<Response> {
+   if (req.method !== 'POST' || req.url !== '/orders/total') {
+     return { status: 404, body: { error: 'not found' } };
+   }
+@@ -124,7 +134,7 @@ async function route(req: IncomingMessage): Promise<Response> {
+   return { status: 200, body: total.value };
+ }
+ 
+-export async function readJson(req: IncomingMessage): Promise<unknown> {
++export async function readJson(req: RequestLike): Promise<unknown> {
+   const chunks: Buffer[] = [];
+   for await (const chunk of req) chunks.push(Buffer.from(chunk));
+   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;

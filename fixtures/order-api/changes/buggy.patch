@@ -1,0 +1,13 @@
+diff --git a/src/api.ts b/src/api.ts
+index 3798a86..5e4511c 100644
+--- a/src/api.ts
++++ b/src/api.ts
+@@ -43,7 +43,7 @@ function parseLine(value: unknown): Result<OrderLine> {
+   if (
+     !isNonNegativeInteger(quantity) ||
+     quantity < 1 ||
+-    quantity > MAX_UNITS_PER_LINE
++    quantity >= MAX_UNITS_PER_LINE
+   ) {
+     return { ok: false, error: 'invalid quantity' };
+   }

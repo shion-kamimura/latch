@@ -17,6 +17,8 @@ describe('pre-PR verification spec', () => {
       'README.md',
       'AGENTS.md',
       'docs/pre-pr-verification.md',
+      'docs/ai-development-validation.md',
+      'fixtures/order-api/README.md',
     ]) {
       for (const match of readRepoFile(document).matchAll(/\]\(([^)]+)\)/g)) {
         const target = match[1]?.split('#')[0];
