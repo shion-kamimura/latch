@@ -69,6 +69,17 @@ describe('pre-PR verification spec', () => {
     expect(isolation).toContain('コンテナではありません');
   });
 
+  test('documents the implemented verification report contract', () => {
+    const isolation = readRepoFile('docs/isolated-execution.md');
+    expect(spec).toContain('## 実装済みの検証レポート（#26）');
+    expect(spec).toContain('schemaVersion: "1"');
+    expect(spec).toContain('worst-condition-state');
+    expect(spec).toContain('verification: "partial"');
+    expect(spec).toContain('終了コード2');
+    expect(isolation).toContain('## レポート（#26）');
+    expect(isolation).toContain('要件全体・コード全体の正しさ');
+  });
+
   test('documents permission reuse, data contract, and replan steps', () => {
     const planning = readRepoFile('docs/requirement-planning.md');
     expect(planning).toContain('## 許可profile');

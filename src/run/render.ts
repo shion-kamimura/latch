@@ -1,16 +1,16 @@
+import { conditionStateLabels, conditionStates } from './report.js';
+import { assertValidRunReport } from './schema.js';
 import type {
   ConditionOutcome,
   Evidence,
   EvidenceStatus,
+  RequirementOutcome,
   RunReport,
 } from './types.js';
 
-const conditionLabels: Record<ConditionOutcome['state'], string> = {
-  verified: '検証成功',
-  failed: '検証失敗',
-  unverified: '未検証',
-  ambiguous: '要件不明確',
-  'execution-impossible': '実行不能・判定不能',
+const verificationLabels: Record<RunReport['verification'], string> = {
+  completed: '完了（失敗・未検証を含む）',
+  partial: '部分結果（実行不能を含み未完了）',
 };
 
 const evidenceLabels: Record<EvidenceStatus, string> = {
@@ -23,6 +23,15 @@ const evidenceLabels: Record<EvidenceStatus, string> = {
   skipped: '未実行',
 };
 
+const exclusionLabels = {
+  binary: 'バイナリ',
+  symlink: 'シンボリックリンク',
+  submodule: 'submodule',
+  'git-internal': '.git配下',
+  'outside-boundary': 'リポジトリ境界外',
+  'not-utf8': 'UTF-8以外',
+} as const;
+
 function section(title: string, lines: readonly string[]): string[] {
   return lines.length === 0 ? [] : [title, ...lines, ''];
 }
@@ -31,11 +40,56 @@ function indent(text: string, prefix: string): string[] {
   return text.split('\n').map((line) => `${prefix}${line}`);
 }
 
-function conditionLines(outcome: ConditionOutcome): string[] {
+function interpretationLines(
+  interpretation: ConditionOutcome['interpretation'],
+): string[] {
+  return [
+    `    LLM解釈: ${interpretation.text}`,
+    `    出典: ${interpretation.source.label}`,
+  ];
+}
+
+function requirementLines(requirement: RequirementOutcome): string[] {
   const lines = [
-    `  ${outcome.conditionId} [${conditionLabels[outcome.state]}]`,
+    `  ${requirement.requirementId} [${conditionStateLabels[requirement.state]}]`,
+    `    LLM解釈: ${requirement.interpretation.text}`,
+    `    出典: ${requirement.interpretation.source.label}`,
+    `    集約: ${requirement.aggregation}`,
+    `    条件: ${requirement.conditionStates
+      .map(
+        (condition) =>
+          `${condition.conditionId} [${conditionStateLabels[condition.state]}]`,
+      )
+      .join(', ')}`,
+    `    内訳: ${conditionStates
+      .map(
+        (state) =>
+          `${conditionStateLabels[state]} ${requirement.stateCounts[state]}`,
+      )
+      .join(' / ')}`,
+  ];
+  for (const note of requirement.notes) lines.push(`    - ${note}`);
+  return lines;
+}
+
+function conditionLines(
+  outcome: ConditionOutcome,
+  evidenceById: ReadonlyMap<string, Evidence>,
+): string[] {
+  const evidence = outcome.evidenceIds
+    .map((id) => evidenceById.get(id))
+    .filter((item): item is Evidence => item !== undefined)
+    .map(
+      (item) =>
+        `${item.id} [${item.kind === 'generated' ? '生成' : '既存'}] [${
+          evidenceLabels[item.status]
+        }]`,
+    );
+  const lines = [
+    `  ${outcome.conditionId} [${conditionStateLabels[outcome.state]}]`,
     `    要件: ${outcome.requirementId}`,
-    `    証拠: ${outcome.evidenceIds.length > 0 ? outcome.evidenceIds.join(', ') : 'なし'}`,
+    ...interpretationLines(outcome.interpretation),
+    `    実行証拠: ${evidence.length > 0 ? evidence.join(', ') : 'なし'}`,
   ];
   for (const note of outcome.notes) lines.push(...indent(`- ${note}`, '    '));
   return lines;
@@ -58,7 +112,10 @@ function evidenceLines(evidence: Evidence): string[] {
       evidence.content.length > 4_000
         ? `${evidence.content.slice(0, 4_000)}\n...[truncated]`
         : evidence.content;
-    lines.push('    生成テスト内容:', ...indent(content, '      '));
+    lines.push(
+      '    生成テスト内容（LLMの解釈）:',
+      ...indent(content, '      '),
+    );
   }
   const log =
     evidence.log.length > 4_000
@@ -72,20 +129,79 @@ function evidenceLines(evidence: Evidence): string[] {
 }
 
 export function renderRunText(report: RunReport): string {
+  assertValidRunReport(report);
   const generated = report.evidence.filter((item) => item.kind === 'generated');
   const existing = report.evidence.filter((item) => item.kind === 'existing');
-  const lines: string[] = ['Latch isolated execution report', ''];
+  const evidenceById = new Map(
+    report.evidence.map((item) => [item.id, item] as const),
+  );
+  const lines: string[] = [
+    'Latch verification report',
+    `  schemaVersion: ${report.schemaVersion}`,
+    `  検証: ${verificationLabels[report.verification]}`,
+    '',
+  ];
+
+  if (report.verification === 'partial') {
+    lines.push(
+      ...section(
+        '部分結果',
+        report.partialReasons.map((reason) => `  - ${reason}`),
+      ),
+    );
+  }
 
   lines.push(
     ...section('入力', [
       `  リポジトリ: ${report.input.repository}`,
       `  HEAD: ${report.input.head}`,
-      `  base: ${report.input.baseRef}`,
+      `  base: ${report.input.baseRef} (${report.input.baseCommit})`,
       `  比較基点: ${report.input.mergeBase}（merge-base）`,
       `  スナップショット: sha256:${report.input.snapshotDigest}`,
+      `  差分: sha256:${report.input.diff.digest}`,
+      `  差分区分: コミット済み ${report.input.diff.kinds.committed} 件 / 未コミット ${report.input.diff.kinds.uncommitted} 件 / 未追跡（明示） ${report.input.diff.kinds.untracked} 件`,
+      ...report.input.diff.files.map(
+        (file) =>
+          `    変更: ${file.status} ${file.path}（${
+            file.kind === 'committed' ? 'コミット済み' : '未コミット'
+          }）`,
+      ),
+      ...report.input.diff.untracked.map(
+        (path) => `    未追跡（明示）: ${path}`,
+      ),
+      ...(report.input.diff.excluded.length > 0
+        ? [
+            `  除外: ${report.input.diff.excluded
+              .map((file) => `${file.path}（${exclusionLabels[file.reason]}）`)
+              .join(', ')}`,
+          ]
+        : ['  除外: なし']),
+      `  Issue入力: ${
+        report.input.issue.input === 'issue-file'
+          ? report.input.issue.path
+          : '指定なし'
+      }`,
+      ...(report.input.issue.input === 'issue-file'
+        ? [
+            `    Issueタイトル: ${report.input.issue.title}`,
+            `    Issue状態: ${report.input.issue.state}`,
+            `    Issue出典: ${report.input.issue.source}`,
+          ]
+        : []),
       `  計画: ${report.input.planPath}`,
-      `  計画digest: ${report.input.planDigest}`,
+      `  計画digest: sha256:${report.input.planDigest}`,
+      `  再現性: ${
+        report.input.reproducibility.ciReproducible ? 'あり' : 'なし'
+      }`,
+      ...report.input.reproducibility.notes.map((note) => `    - ${note}`),
     ]),
+  );
+
+  lines.push(
+    ...section(
+      '要件別の状態（集約）',
+      report.requirements.flatMap(requirementLines),
+    ),
   );
 
   lines.push(
@@ -115,7 +231,12 @@ export function renderRunText(report: RunReport): string {
   );
 
   lines.push(
-    ...section('条件別の状態', report.conditions.flatMap(conditionLines)),
+    ...section(
+      '条件と実行証拠の対応',
+      report.conditions.flatMap((condition) =>
+        conditionLines(condition, evidenceById),
+      ),
+    ),
   );
 
   lines.push(
@@ -142,8 +263,9 @@ export function renderRunText(report: RunReport): string {
     '再実行',
     `  ${report.rerunCommand}`,
     '',
-    'テスト成功は要件全体・コード全体の正しさの証明ではありません。',
-    '生成テスト不正・起動失敗・環境不足を製品不具合の証拠として扱っていません。',
+    '注意',
+    `  ${report.disclaimer}`,
+    '  実行証拠はテスト名・コマンド・終了コード・ログです。要件・条件の文と生成テストの内容はLLMの解釈です。',
     '',
   );
 
@@ -151,5 +273,6 @@ export function renderRunText(report: RunReport): string {
 }
 
 export function renderRunJson(report: RunReport): string {
+  assertValidRunReport(report);
   return `${JSON.stringify(report, null, 2)}\n`;
 }

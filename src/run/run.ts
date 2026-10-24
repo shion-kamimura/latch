@@ -20,8 +20,13 @@ import {
 } from './isolation.js';
 import { executeSuite } from './execute.js';
 import { readRunPlan } from './plan-file.js';
+import {
+  deriveConditionOutcomes,
+  REPORT_DISCLAIMER,
+  RUN_REPORT_SCHEMA_VERSION,
+  summarizeRequirements,
+} from './report.js';
 import type {
-  ConditionOutcome,
   Evidence,
   GeneratedTest,
   RunEnvironment,
@@ -47,108 +52,6 @@ function categoriesFor(
   if (categories.length === 0) categories.push('diff');
   void settings;
   return categories;
-}
-
-function conditionOutcomes(
-  runPlan: RunPlanInput,
-  evidence: readonly Evidence[],
-): ConditionOutcome[] {
-  return runPlan.conditions.map((condition) => {
-    const conditionEvidence = evidence.filter((item) =>
-      item.conditionIds.includes(condition.id),
-    );
-    const evidenceIds = conditionEvidence.map((item) => item.id);
-    if (condition.ambiguity !== null) {
-      return {
-        conditionId: condition.id,
-        requirementId: condition.requirementId,
-        state: 'ambiguous',
-        evidenceIds,
-        notes: ['要件不明確のため、実行結果があっても検証成功とはしません。'],
-      };
-    }
-
-    const failed = conditionEvidence.some(
-      (item) => item.status === 'assertion-failed',
-    );
-    if (failed) {
-      return {
-        conditionId: condition.id,
-        requirementId: condition.requirementId,
-        state: 'failed',
-        evidenceIds,
-        notes: ['実行したテストが失敗しました。'],
-      };
-    }
-
-    const generated = conditionEvidence.filter(
-      (item) => item.kind === 'generated',
-    );
-    const passedGenerated = generated.some((item) => item.status === 'passed');
-    if (passedGenerated) {
-      return {
-        conditionId: condition.id,
-        requirementId: condition.requirementId,
-        state: 'verified',
-        evidenceIds,
-        notes: ['生成テストが成功しました。要件全体の正しさを証明しません。'],
-      };
-    }
-
-    const impossible = conditionEvidence.find(
-      (item) =>
-        item.status === 'runner-startup-failed' ||
-        item.status === 'environment-insufficient' ||
-        item.status === 'timeout',
-    );
-    if (impossible) {
-      return {
-        conditionId: condition.id,
-        requirementId: condition.requirementId,
-        state: 'execution-impossible',
-        evidenceIds,
-        notes: ['実行環境または起動の失敗により判定できません。'],
-      };
-    }
-
-    const invalid = conditionEvidence.find(
-      (item) => item.status === 'invalid-generated-test',
-    );
-    if (invalid) {
-      return {
-        conditionId: condition.id,
-        requirementId: condition.requirementId,
-        state: 'unverified',
-        evidenceIds,
-        notes: [
-          '生成テストが実行可能なテストになっていません。製品不具合の証拠として扱いません。',
-        ],
-      };
-    }
-
-    const existingPassed = conditionEvidence.some(
-      (item) => item.kind === 'existing' && item.status === 'passed',
-    );
-    if (existingPassed) {
-      return {
-        conditionId: condition.id,
-        requirementId: condition.requirementId,
-        state: 'unverified',
-        evidenceIds,
-        notes: [
-          '既存テスト候補は成功しましたが、条件を十分に確認したとは限りません。',
-        ],
-      };
-    }
-
-    return {
-      conditionId: condition.id,
-      requirementId: condition.requirementId,
-      state: 'unverified',
-      evidenceIds,
-      notes: ['この条件に対応する実行証拠がありません。'],
-    };
-  });
 }
 
 function planConditionsById(runPlan: RunPlanInput) {
@@ -188,11 +91,14 @@ function generatedConditionIds(
 function reportDigest(report: Omit<RunReport, 'digest'>): string {
   return sha256(
     [
-      'latch-isolated-execution-v1',
-      `snapshot:${report.input.snapshotDigest}`,
-      `plan:${report.input.planDigest}`,
+      'latch-verification-report-v1',
+      `schema:${report.schemaVersion}`,
+      `input:${JSON.stringify(report.input)}`,
+      `requirements:${JSON.stringify(report.requirements)}`,
       `conditions:${JSON.stringify(report.conditions)}`,
       `evidence:${JSON.stringify(report.evidence)}`,
+      `verification:${report.verification}`,
+      `partial:${JSON.stringify(report.partialReasons)}`,
       `warnings:${JSON.stringify(report.warnings)}`,
     ].join('\n'),
   );
@@ -225,12 +131,14 @@ export async function runVerification(
     throw new RequirementPlanError(
       '計画ファイルの入力スナップショットが現在の入力と一致しません。',
       '変更を固定してから latch plan を再実行し、新しい計画で latch run を実行してください。',
+      1,
     );
   }
   if (snapshot.repository.root !== plan.input.repository.root) {
     throw new RequirementPlanError(
       '計画ファイルのリポジトリと実行中のリポジトリが一致しません。',
       '計画を作成したリポジトリで実行してください。',
+      1,
     );
   }
 
@@ -290,6 +198,7 @@ export async function runVerification(
       : []),
   ];
   const conditions = planConditionsById(runPlan);
+  let executionFailure = false;
 
   try {
     for (const test of generated) {
@@ -316,6 +225,13 @@ export async function runVerification(
         warnings.push(
           '既存テストの実行が起動失敗または環境不足で完了しませんでした。',
         );
+      }
+      if (
+        existing.status === 'runner-startup-failed' ||
+        existing.status === 'environment-insufficient' ||
+        existing.status === 'timeout'
+      ) {
+        executionFailure = true;
       }
     }
 
@@ -369,6 +285,13 @@ export async function runVerification(
           `生成テスト ${current.conditionId} は時間上限を超えたため終了しました。`,
         );
       }
+      if (
+        result.status === 'runner-startup-failed' ||
+        result.status === 'environment-insufficient' ||
+        result.status === 'timeout'
+      ) {
+        executionFailure = true;
+      }
     }
 
     const evidenceWithContent: Evidence[] = evidence.map((item) => {
@@ -379,13 +302,22 @@ export async function runVerification(
       );
       return { ...item, content: test?.code ?? null };
     });
-    const outcomes = conditionOutcomes(runPlan, evidenceWithContent);
+    const outcomes = deriveConditionOutcomes(runPlan, evidenceWithContent);
+    const requirements = summarizeRequirements(runPlan.conditions, outcomes);
     const cleanup = workspace.cleanup();
-    const verification =
-      outcomes.some((outcome) => outcome.state === 'execution-impossible') ||
-      cleanup.status === 'failed'
-        ? 'incomplete'
-        : 'completed';
+    const partialReasons: string[] = [];
+    if (executionFailure) {
+      partialReasons.push(
+        'テストの起動・実行環境または時間上限により判定できない条件があります。',
+      );
+    }
+    if (outcomes.some((outcome) => outcome.state === 'execution-impossible')) {
+      partialReasons.push('実行不能・判定不能の条件があります。');
+    }
+    if (cleanup.status === 'failed') {
+      partialReasons.push('隔離領域の後片付けに失敗しました。');
+    }
+    const verification = partialReasons.length === 0 ? 'completed' : 'partial';
     const unverified = [
       '隔離はプロセス境界と一時コピーであり、コンテナ等のOSレベル分離ではありません。',
       '生成テストはLLMの解釈を含み、要件の網羅性や正しさを保証しません。',
@@ -405,16 +337,52 @@ export async function runVerification(
     }
 
     const baseReport: Omit<RunReport, 'digest'> = {
+      schemaVersion: RUN_REPORT_SCHEMA_VERSION,
       phase: 'isolated-execution',
       verification,
       input: {
         repository: snapshot.repository.root,
         head: snapshot.repository.head,
         baseRef: snapshot.base.ref,
+        baseCommit: snapshot.base.commit,
         mergeBase: snapshot.base.mergeBase,
         snapshotDigest: snapshot.digest,
         planPath: runPlan.path,
         planDigest: plan.digest,
+        diff: {
+          digest: snapshot.diff.digest,
+          files: snapshot.diff.files,
+          excluded: snapshot.diff.excluded,
+          untracked: snapshot.diff.untracked.map((file) => file.path),
+          kinds: {
+            committed: snapshot.diff.files.filter(
+              (file) => file.kind === 'committed',
+            ).length,
+            uncommitted: snapshot.diff.files.filter(
+              (file) => file.kind === 'uncommitted',
+            ).length,
+            untracked: snapshot.diff.untracked.length,
+          },
+        },
+        issue:
+          snapshot.issue === null
+            ? {
+                input: 'none',
+                path: null,
+                title: null,
+                state: null,
+                source: null,
+                digest: null,
+              }
+            : {
+                input: 'issue-file',
+                path: snapshot.issue.path,
+                title: snapshot.issue.title,
+                state: snapshot.issue.state,
+                source: snapshot.issue.source,
+                digest: snapshot.issue.digest,
+              },
+        reproducibility: snapshot.reproducibility,
       },
       generation: {
         provider: profile.connection.provider,
@@ -446,10 +414,13 @@ export async function runVerification(
         },
         cleanup,
       },
+      requirements,
       conditions: outcomes,
       evidence: evidenceWithContent,
       unverified,
       warnings,
+      partialReasons,
+      disclaimer: REPORT_DISCLAIMER,
       rerunCommand: [
         'latch',
         'run',

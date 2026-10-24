@@ -183,6 +183,46 @@ function planFile(
   return path;
 }
 
+function multiConditionPlanFile(
+  repo: TestRepository,
+  directory: { readonly root: string },
+): string {
+  const path = planFile(repo, directory);
+  const plan = JSON.parse(readFileSync(path, 'utf8')) as {
+    requirements: {
+      conditions: unknown[];
+    }[];
+  };
+  plan.requirements[0]?.conditions.push({
+    id: 'cond-review-note',
+    requirementId: 'req-discount',
+    text: 'The review note is documented.',
+    source: {
+      kind: 'issue',
+      path: 'issue.md',
+      line: 20,
+      label: 'issue:issue.md#L20',
+    },
+    origin: 'issue-explicit',
+    state: 'unverified',
+    ambiguity: null,
+    existingTestCandidateIds: [],
+    missingScenarios: [],
+  });
+  writeFileSync(path, JSON.stringify(plan, null, 2));
+  return path;
+}
+
+const SLOW_GENERATED_CODE = [
+  "import { test } from 'vitest';",
+  '',
+  "test('exceeds the execution budget', () => {",
+  '  const started = Date.now();',
+  '  while (Date.now() - started < 5_000) {}',
+  '});',
+  '',
+].join('\n');
+
 const INVALID_GENERATED_CODE = [
   "import { expect, test } from 'vitest';",
   "import { calculateOrder } from '../../src/api.ts';",
@@ -399,10 +439,202 @@ describe('run command isolated execution', () => {
       },
     );
 
-    expect(status).toBe(2);
+    expect(status).toBe(1);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(io.stderr).toHaveBeenCalledWith(
       expect.stringContaining('一致しません'),
+    );
+  });
+
+  test('includes input identity and requirement-test-evidence traceability', async () => {
+    const repo = repositoryWithChange('correct');
+    const planPath = planFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root),
+    );
+    const recorder = recordingFetch();
+
+    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+
+    expect(status).toBe(0);
+    const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
+      schemaVersion: string;
+      verification: string;
+      input: {
+        baseCommit: string;
+        diff: {
+          digest: string;
+          kinds: { committed: number; uncommitted: number; untracked: number };
+        };
+        issue: { input: string; state: string; source: string };
+      };
+      requirements: {
+        requirementId: string;
+        state: string;
+        stateCounts: Record<string, number>;
+        conditionStates: { conditionId: string; state: string }[];
+      }[];
+      conditions: {
+        conditionId: string;
+        interpretation: {
+          kind: string;
+          text: string;
+          source: { label: string };
+        };
+        state: string;
+        evidenceIds: string[];
+      }[];
+      evidence: { id: string; conditionIds: string[] }[];
+      disclaimer: string;
+    };
+
+    expect(report.schemaVersion).toBe('1');
+    expect(report.verification).toBe('completed');
+    expect(report.input.baseCommit).toMatch(/^[0-9a-f]{40}$/u);
+    expect(report.input.diff.digest).toMatch(/^[0-9a-f]{64}$/u);
+    expect(report.input.diff.kinds.committed).toBeGreaterThan(0);
+    expect(report.input.issue).toMatchObject({
+      input: 'issue-file',
+      state: 'unknown',
+      source: 'issue.md',
+    });
+    expect(report.requirements[0]).toMatchObject({
+      requirementId: 'req-discount',
+      state: 'verified',
+      conditionStates: [
+        { conditionId: 'cond-discount-floor', state: 'verified' },
+      ],
+    });
+    expect(report.requirements[0]?.stateCounts.verified).toBe(1);
+    expect(report.conditions[0]).toMatchObject({
+      conditionId: 'cond-discount-floor',
+      state: 'verified',
+      interpretation: {
+        kind: 'llm',
+        text: '99 cents with SAVE10 totals 90 cents.',
+        source: { label: 'diff:src/api.ts' },
+      },
+    });
+    expect(report.conditions[0]?.evidenceIds).toHaveLength(1);
+    const evidenceId = report.conditions[0]?.evidenceIds[0];
+    expect(
+      report.evidence.find((item) => item.id === evidenceId)?.conditionIds,
+    ).toEqual(['cond-discount-floor']);
+    expect(report.disclaimer).toContain('正しさの証明ではありません');
+    expect(io.stdout.mock.calls[0]?.[0]).not.toContain('secret-value');
+  });
+
+  test('does not aggregate a partly verified requirement into success', async () => {
+    const repo = repositoryWithChange('correct');
+    const planPath = multiConditionPlanFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root),
+    );
+    const recorder = recordingFetch();
+
+    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+
+    expect(status).toBe(0);
+    const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
+      requirements: {
+        state: string;
+        stateCounts: Record<string, number>;
+        conditionStates: { conditionId: string; state: string }[];
+        notes: string[];
+      }[];
+      conditions: { conditionId: string; state: string }[];
+    };
+
+    expect(report.requirements[0]?.state).toBe('unverified');
+    expect(report.requirements[0]?.stateCounts).toMatchObject({
+      verified: 1,
+      unverified: 1,
+    });
+    expect(report.requirements[0]?.conditionStates).toEqual([
+      {
+        conditionId: 'cond-discount-floor',
+        state: 'verified',
+        evidenceIds: [expect.any(String)],
+      },
+      { conditionId: 'cond-review-note', state: 'unverified', evidenceIds: [] },
+    ]);
+    expect(report.conditions.map((condition) => condition.state)).toEqual([
+      'verified',
+      'unverified',
+    ]);
+    expect(report.requirements[0]?.notes.join('\n')).toContain(
+      '要件全体を検証成功として扱いません',
+    );
+    expect(report.requirements[0]?.notes.join('\n')).toContain(
+      'cond-review-note',
+    );
+  });
+
+  test('returns a partial report and exit code 2 when execution is impossible', async () => {
+    const repo = repositoryWithChange('correct');
+    const planPath = planFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root, {
+        extra: {
+          execution: {
+            dependencies: { mode: 'runner', registry: null },
+            network: { allowedDestinations: [] },
+            limits: { timeoutMs: 1_000 },
+          },
+        },
+      }),
+    );
+    const recorder = recordingFetch(SLOW_GENERATED_CODE);
+
+    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+
+    expect(status).toBe(2);
+    const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
+      verification: string;
+      partialReasons: string[];
+      conditions: { state: string }[];
+      evidence: { kind: string; status: string }[];
+    };
+    expect(report.verification).toBe('partial');
+    expect(report.partialReasons.join('\n')).toContain('判定できない条件');
+    expect(report.conditions[0]?.state).toBe('execution-impossible');
+    expect(
+      report.evidence.find((item) => item.kind === 'generated')?.status,
+    ).toBe('timeout');
+    expect(io.stderr).toHaveBeenCalledWith(expect.stringContaining('時間上限'));
+  });
+
+  test('does not report completion when writing the report fails', async () => {
+    const repo = repositoryWithChange('correct');
+    const planPath = planFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root),
+    );
+    const recorder = recordingFetch();
+    const io = {
+      stdout: vi.fn(() => {
+        throw new Error('write failed');
+      }),
+      stderr: vi.fn(),
+    };
+
+    const status = await runCli(
+      ['run', '--plan', planPath, '--profile', profile, '--json'],
+      io,
+      {
+        cwd: repo.root,
+        env: { LATCH_API_KEY: 'secret-value' },
+        fetch: recorder.fetch,
+      },
+    );
+
+    expect(status).toBe(2);
+    expect(io.stderr).toHaveBeenCalledWith(
+      expect.stringContaining('レポートの出力に失敗しました'),
     );
   });
 });
