@@ -15,7 +15,7 @@ import run
 
 class StageDiagnosticsTests(unittest.TestCase):
     def test_fetch_and_lifecycle_timeouts_preserve_distinct_stages(self):
-        for fail_at, expected in [(1, 'dependency_fetch'), (2, 'dependency_lifecycle')]:
+        for fail_at, expected in [(2, 'dependency_fetch'), (3, 'dependency_lifecycle')]:
             with self.subTest(stage=expected), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 calls = []
@@ -25,12 +25,12 @@ class StageDiagnosticsTests(unittest.TestCase):
                     if len(calls) == fail_at:
                         raise subprocess.TimeoutExpired(args, kwargs['timeout'], output=b'secret')
                     return subprocess.CompletedProcess(args, 0)
-                with patch.object(run.subprocess, 'run', side_effect=command), contextlib.redirect_stdout(io.StringIO()) as stdout:
-                    with self.assertRaises(subprocess.TimeoutExpired):
-                        run.prepare_dependencies(root, [], 'registry', 'network', 'install', root)
+                with patch.object(run.subprocess, 'run', side_effect=command), patch.object(run, 'stop_container'), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                    with self.assertRaises((ValueError, subprocess.TimeoutExpired)):
+                        run.prepare_dependencies(root, [], 'registry', 'network', 'install', root, retries=0)
                 result = json.loads((root / (expected + '.safe.json')).read_text())
                 self.assertEqual((result['stage'], result['status'], result['reason']), (expected, 'timeout', 'time_limit'))
-                self.assertEqual(result['limit_seconds'], 300 if fail_at == 1 else 180)
+                self.assertEqual(result['limit_seconds'], 300 if fail_at == 2 else 180)
                 self.assertIsNone(result['exit_code'])
                 out = root / 'out'
                 out.mkdir()
@@ -44,7 +44,7 @@ class StageDiagnosticsTests(unittest.TestCase):
                 self.assertIn('dependencies_unavailable', public)
                 for p in (out / 'stages').iterdir():
                     self.assertLessEqual(p.stat().st_size, 4096)
-                if fail_at == 2:
+                if fail_at == 3:
                     self.assertEqual(json.loads((out / 'stages/dependency_fetch.safe.json').read_text())['status'], 'passed')
 
     def test_real_process_failure_records_exit_without_relaying_output(self):

@@ -62,6 +62,7 @@ class PartialTests(unittest.TestCase):
                        patch.object(run, 'run_agent', side_effect=agent), patch.object(run, 'stop_container', side_effect=stop),
                        patch.object(run, 'snapshot', side_effect=snapshot), patch.object(run, 'report_gateway'),
                        patch.object(run, 'independent_check', side_effect=check),
+                       patch.object(run, 'preflight_dependencies', return_value=root / 'base-store'),
                        patch.object(run, 'prepare_dependencies', side_effect=dependency_error)]
             import contextlib
             with contextlib.ExitStack() as stack:

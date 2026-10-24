@@ -35,3 +35,5 @@ jobs:
           docker run --rm --network none --entrypoint sh latch-agent -c 'node --version && pnpm --version && opencode --version'
       - name: Exercise OpenCode with a mock API on an internal network (no secrets)
         run: python3 -B .github/automation/smoke.py
+      - name: Exercise isolated dependency cold/warm cache and failure classification (no secrets)
+        run: python3 -B .github/automation/dependency_smoke.py

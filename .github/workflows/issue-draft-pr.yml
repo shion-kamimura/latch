@@ -68,18 +68,43 @@ jobs:
           name: issue-request
           path: ${{ runner.temp }}/request
       - name: Build pinned agent tools (no API key)
-        run: docker build -f .github/automation/Dockerfile -t latch-agent .
+        run: |
+          docker pull node:26.12.0-bookworm-slim
+          docker build -f .github/automation/Dockerfile -t latch-agent .
       - name: Build trusted API gateway without secrets
         run: docker build -f .github/automation/Dockerfile.gateway -t latch-gateway .
       - name: Verify OpenCode startup without secrets or network
         run: docker run --rm --network none --cap-drop=ALL --security-opt=no-new-privileges --read-only --tmpfs /tmp:rw,nosuid,size=512m -e XDG_DATA_HOME=/tmp/xdg/data -e XDG_CONFIG_HOME=/tmp/xdg/config -e XDG_CACHE_HOME=/tmp/xdg/cache -e XDG_STATE_HOME=/tmp/xdg/state latch-agent opencode --version
+      - name: Compute fixed-base store key (never candidate input)
+        id: store-key
+        continue-on-error: true
+        run: python3 .github/automation/run.py --cache-key >> "$GITHUB_OUTPUT"
+      - name: Restore exact fixed-base pnpm store
+        id: store-cache
+        if: steps.store-key.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/base-pnpm-store
+          key: ${{ steps.store-key.outputs.key }}
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'
       - name: Implement, repair, and independently verify in containers
+        id: implement
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           CANDIDATE_PATH: ${{ github.workspace }}/candidate-input
           REQUEST_PATH: ${{ runner.temp }}/request/issue.json
           OUTPUT_PATH: ${{ runner.temp }}/proposal
+          DEPENDENCY_STORE_PATH: ${{ runner.temp }}/base-pnpm-store
         run: python3 .github/automation/run.py
+      - name: Save only fixed-base store; candidate stores are disposable
+        if: always() && steps.store-key.outcome == 'success' && steps.implement.outputs.base_store_ready == 'true' && steps.store-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/base-pnpm-store
+          key: ${{ steps.store-key.outputs.key }}
       - name: Save safe execution measurements even on failure
         if: always()
         uses: actions/upload-artifact@v4

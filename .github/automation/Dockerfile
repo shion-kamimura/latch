@@ -5,6 +5,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
     && opencode --version && pnpm --version
 WORKDIR /opt/deps
 COPY package.json pnpm-lock.yaml .npmrc ./
-RUN pnpm install --frozen-lockfile && chmod -R a+rX /opt/deps
+RUN pnpm with current install --frozen-lockfile && chmod -R a+rX /opt/deps
 WORKDIR /work
 USER node
