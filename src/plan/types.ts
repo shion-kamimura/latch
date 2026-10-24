@@ -63,6 +63,26 @@ export interface PlanningLimits {
   readonly maxInputCharacters: number;
 }
 
+export type DependencyPreparationMode = 'runner' | 'offline' | 'registry';
+
+export interface ExecutionSettings {
+  readonly dependencies: {
+    readonly mode: DependencyPreparationMode;
+    readonly registry: string | null;
+  };
+  readonly network: {
+    readonly allowedDestinations: readonly string[];
+  };
+  readonly limits: {
+    readonly timeoutMs: number;
+    readonly maxMemoryMb: number;
+    readonly maxOutputBytes: number;
+    readonly maxGeneratedFiles: number;
+    readonly maxGeneratedFileBytes: number;
+    readonly maxRepairAttempts: number;
+  };
+}
+
 export interface PlanningProfile {
   readonly id: string;
   readonly decision: 'allowed' | 'denied' | 'revoked';
@@ -79,6 +99,7 @@ export interface PlanningProfile {
     readonly apiKeyEnv: string;
   };
   readonly limits: PlanningLimits;
+  readonly execution?: ExecutionSettings;
   readonly path: string;
 }
 
@@ -109,6 +130,11 @@ export interface RequirementPlan {
       readonly files: readonly ChangedFile[];
       readonly excluded: readonly ExcludedFile[];
       readonly digest: string;
+    };
+    readonly options: {
+      readonly base: string | null;
+      readonly issueFile: string | null;
+      readonly includeUntracked: readonly string[];
     };
     readonly snapshotDigest: string;
   };

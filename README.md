@@ -2,7 +2,7 @@
 
 Latchは、AIが生成したコードをGitHub IssueやPRの要件と照合し、実際のテスト結果や証拠に基づいて検証するオープンソースのCLIツールです。
 
-現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）、`latch plan` による要件抽出・既存Vitestテスト候補と不足シナリオの計画を提供しています。テスト生成・隔離実行・実行証拠の収集・レポートはまだ実装していません。
+現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）、`latch plan` による要件抽出・既存Vitestテスト候補と不足シナリオの計画、`latch run` によるVitestテスト生成・隔離実行・実行証拠の収集を提供しています。Markdownレポート・CI連携・GitHub PR投稿はまだ実装していません。
 
 ## 使用技術
 
@@ -100,7 +100,20 @@ node dist/cli.mjs plan --base origin/main --issue-file fixtures/order-api/issue.
 
 送信にはワークツリー外の利用者管理の許可profileと、環境変数（既定は `LATCH_API_KEY`）のBYOKキーが必要です。許可profileはprovider・endpoint・project・データ区分を検証し、同一範囲は追加確認なしに再利用します。拒否・取り消し・範囲拡大・非対話の許可不足では送信せず終了コード2を返します。APIキーはprofile・ログ・レポートへ保存しません。認証失敗・タイムアウト・利用上限・不正なLLM応答は上限内で停止します。
 
-自動テストは固定したLLM応答を使い、実APIでの抽出品質は評価していません。テスト生成・実行・証拠収集は未実装です。利用方法・許可profile・データ契約・確認と再計画の手順は [要件抽出と検証シナリオ計画](docs/requirement-planning.md) を参照してください。
+自動テストは固定したLLM応答を使い、実APIでの抽出品質は評価していません。テスト生成・実行・証拠収集は `latch run` で実装し、隔離方式・安全境界・依存準備・通信制御・状態の区別は [生成テストの隔離実行と証拠収集](docs/isolated-execution.md) を参照してください。利用方法・許可profile・データ契約・確認と再計画の手順は [要件抽出と検証シナリオ計画](docs/requirement-planning.md) を参照してください。
+
+### 不足テストを生成して隔離実行する
+
+```sh
+node dist/cli.mjs plan --base origin/main --issue-file fixtures/order-api/issue.md \
+  --profile ~/.config/latch/llm-profile.json --json > latch-plan.json
+node dist/cli.mjs run --plan latch-plan.json \
+  --profile ~/.config/latch/llm-profile.json --json
+```
+
+`run` は計画JSONの入力スナップショットを再解決して一致を確認し、不足シナリオからVitestテストを生成します。固定入力の一時コピーを`git archive`から作り、既存テストと生成テストを区別して実行し、条件ID・テスト内容・実行コマンド・終了コード・ログを対応づけたレポートを出力します。対象コードをホストのワークツリーで直接実行せず、元のワークツリー・未コミット・未追跡ファイルへ書き戻しません。
+
+子プロセスはNode.jsのパーミッションモデルでファイル読み書きを制限し、テスト通信を既定で遮断します。Git資格情報・APIキー・ホーム・Docker socketは渡しません。隔離や依存準備を利用できない場合はホスト実行へ切り替えず「実行不能・判定不能」として停止します。生成テスト不正・起動失敗・環境不足は製品不具合の証拠にしません。設計理由・依存準備の方式・制約・未検証事項は [生成テストの隔離実行と証拠収集](docs/isolated-execution.md) を参照してください。
 
 ## 開発フローとCI
 
@@ -131,9 +144,9 @@ Issueで `/opencode このIssueを実装してください` または `/oc こ�
 
 App・Secrets・有効化、起動権限、費用と停止方法、移行・切り戻しと未検証事項は [OpenCode運用手順](docs/opencode.md)、旧責務の置換は [委譲設計](docs/automation-delegation.md) を参照してください。旧Draft経路とその [検証記録](docs/ai-development-validation.md) は過去の構成です。
 
-PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。このうち #23 の入力解決と #24 の要件抽出・検証計画を実装済みで、テスト生成・隔離実行・レポートは未実装です。利用者設定による送信許可の再利用、閉じたIssueの再現検証、隔離した依存準備と制御されたテスト通信も仕様として整理しています。実APIの品質評価は未実施です。
+PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。このうち #23 の入力解決、#24 の要件抽出・検証計画、#25 のテスト生成・隔離実行・証拠収集を実装済みです。要件→テスト→証拠のMarkdownレポート、CI連携、GitHub PR投稿は未実装です。利用者設定による送信許可の再利用、閉じたIssueの再現検証、隔離した依存準備と制御されたテスト通信を仕様として整理しています。実APIの品質評価は未実施です。
 
-`src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。`src/verify/` が入力解決を担当します。
+`src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。`src/verify/` が入力解決、`src/plan/` が要件抽出・計画、`src/run/` がテスト生成・隔離実行・証拠収集を担当します。
 
 Issueテンプレートに目的・期待動作・スコープ・受け入れ条件を記載し、専用ブランチで開発してください。ライブラリ選定・テスト配置・内部構造の整理は理由と仮定を記して進めます。依頼外の互換性破壊や実環境の権限適用など、具体的な影響がある判断に確認を絞ります。AIエージェント向けのルールは [AGENTS.md](AGENTS.md) に定義しています。
 

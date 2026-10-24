@@ -90,7 +90,7 @@ function sensitiveWarnings(paths: readonly string[]): string[] {
   return warnings;
 }
 
-function buildPromptContext(
+export function buildPromptContext(
   snapshot: VerificationInputSnapshot,
   testCandidates: readonly DiscoveredTestCandidate[],
 ): {
@@ -301,6 +301,11 @@ export async function planRequirements(
         files: snapshot.diff.files,
         excluded: snapshot.diff.excluded,
         digest: snapshot.diff.digest,
+      },
+      options: {
+        base: options.base ?? null,
+        issueFile: options.issueFile ?? null,
+        includeUntracked: options.includeUntracked,
       },
       snapshotDigest: snapshot.digest,
     },

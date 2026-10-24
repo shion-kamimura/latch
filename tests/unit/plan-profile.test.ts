@@ -225,4 +225,78 @@ describe('planning permission profile', () => {
     expect(error.message).toContain('BYOK_KEY');
     expect(error.message).not.toContain('secret');
   });
+
+  test('parses execution settings and clamps limits', () => {
+    const project = temporary().root;
+    const profile = parsePlanningProfile(
+      profileContent(project, {
+        extra: {
+          execution: {
+            dependencies: {
+              mode: 'registry',
+              registry: 'https://registry.example.test/',
+            },
+            network: { allowedDestinations: ['https://api.example.test'] },
+            limits: {
+              timeoutMs: 999_999,
+              maxMemoryMb: 1,
+              maxOutputBytes: 9_999_999,
+              maxGeneratedFiles: 100,
+              maxGeneratedFileBytes: 1,
+              maxRepairAttempts: 9,
+            },
+          },
+        },
+      }),
+      '/tmp/profile.json',
+    );
+
+    expect(profile.execution).toEqual({
+      dependencies: {
+        mode: 'registry',
+        registry: 'https://registry.example.test',
+      },
+      network: { allowedDestinations: ['https://api.example.test'] },
+      limits: {
+        timeoutMs: 300_000,
+        maxMemoryMb: 128,
+        maxOutputBytes: 1_000_000,
+        maxGeneratedFiles: 30,
+        maxGeneratedFileBytes: 1_000,
+        maxRepairAttempts: 2,
+      },
+    });
+  });
+
+  test('rejects a registry mode without a registry and insecure registries', () => {
+    const project = temporary().root;
+    const missing = expectPlanError(() =>
+      parsePlanningProfile(
+        profileContent(project, {
+          extra: {
+            execution: { dependencies: { mode: 'registry' } },
+          },
+        }),
+        '/tmp/profile.json',
+      ),
+    );
+    expect(missing.message).toContain('registry');
+
+    const insecure = expectPlanError(() =>
+      parsePlanningProfile(
+        profileContent(project, {
+          extra: {
+            execution: {
+              dependencies: {
+                mode: 'registry',
+                registry: 'http://registry.example.test',
+              },
+            },
+          },
+        }),
+        '/tmp/profile.json',
+      ),
+    );
+    expect(insecure.message).toContain('HTTPS');
+  });
 });
