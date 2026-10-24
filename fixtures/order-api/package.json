@@ -1,0 +1,13 @@
+{
+  "name": "latch-order-api-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Sample TypeScript API used to evaluate Latch verification and test generation",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "devDependencies": {
+    "vitest": "5.0.5"
+  }
+}

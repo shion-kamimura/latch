@@ -53,6 +53,22 @@ pnpm test
 pnpm exec vitest run --project unit --project integration
 ```
 
+## 評価用のサンプルAPIと正解データ
+
+Latchの検証結果を照合するための評価用fixtureを [fixtures/order-api](fixtures/order-api/README.md) に置いています。TypeScript / Node.js・Vitestの小さな注文合計APIで、外部サービス不要です。
+
+- base・正しい変更 `changes/correct.patch`・不具合のある変更 `changes/buggy.patch` を再現できる。
+- `issue.md` を Issue入力として渡せる。
+- `evaluation/cases.json` に正常系・異常系・境界値の期待結果と検出すべき不具合を記録している。
+- baseと不具合のある変更は既存テストを通り、評価専用テストだけが不具合を検出する。正しい変更は両方を通る。
+- `evaluation/` の正解データと評価専用テストは候補コピーに含めず、Latchの探索対象・LLM入力へ混入させない。
+
+```sh
+node fixtures/order-api/scripts/prepare-candidate.ts correct
+```
+
+依存準備・隔離実行の方針・未検証事項は [fixtureのREADME](fixtures/order-api/README.md) を参照してください。
+
 ## ビルドとCLIの実行
 
 ```sh

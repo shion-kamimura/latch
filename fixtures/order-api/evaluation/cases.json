@@ -1,0 +1,489 @@
+{
+  "$comment": "Latch評価用の正解データ。候補へコピーせず、LLM入力にも含めない。利用方法は fixtures/order-api/README.md を参照。",
+  "request": {
+    "method": "POST",
+    "path": "/orders/total"
+  },
+  "cases": [
+    {
+      "id": "normal.single-line",
+      "category": "normal",
+      "coveredBy": "existing",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 2,
+            "unitPriceCents": 500
+          }
+        ]
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 1000,
+          "totalCents": 1000,
+          "appliedCoupon": null
+        }
+      }
+    },
+    {
+      "id": "normal.coupon-save10",
+      "category": "normal",
+      "coveredBy": "existing",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 2,
+            "unitPriceCents": 500
+          }
+        ],
+        "couponCode": "SAVE10"
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 1000,
+          "totalCents": 900,
+          "appliedCoupon": "SAVE10"
+        }
+      }
+    },
+    {
+      "id": "normal.coupon-save20",
+      "category": "normal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 2,
+            "unitPriceCents": 500
+          }
+        ],
+        "couponCode": "SAVE20"
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 1000,
+          "totalCents": 800,
+          "appliedCoupon": "SAVE20"
+        }
+      }
+    },
+    {
+      "id": "normal.multiple-lines",
+      "category": "normal",
+      "coveredBy": "existing",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 2,
+            "unitPriceCents": 500
+          },
+          {
+            "sku": "SKU-002",
+            "quantity": 1,
+            "unitPriceCents": 250
+          }
+        ]
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 1250,
+          "totalCents": 1250,
+          "appliedCoupon": null
+        }
+      }
+    },
+    {
+      "id": "abnormal.empty-lines",
+      "category": "abnormal",
+      "coveredBy": "existing",
+      "body": {
+        "lines": []
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "lines must be a non-empty array"
+        }
+      }
+    },
+    {
+      "id": "abnormal.lines-not-array",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": {}
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "lines must be a non-empty array"
+        }
+      }
+    },
+    {
+      "id": "abnormal.unknown-coupon",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 1,
+            "unitPriceCents": 100
+          }
+        ],
+        "couponCode": "FREEFALL"
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "unknown coupon"
+        }
+      }
+    },
+    {
+      "id": "abnormal.quantity-above-line-max",
+      "category": "abnormal",
+      "coveredBy": "existing",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 11,
+            "unitPriceCents": 100
+          }
+        ]
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "invalid quantity"
+        }
+      }
+    },
+    {
+      "id": "abnormal.zero-quantity",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 0,
+            "unitPriceCents": 100
+          }
+        ]
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "invalid quantity"
+        }
+      }
+    },
+    {
+      "id": "abnormal.negative-quantity",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": -1,
+            "unitPriceCents": 100
+          }
+        ]
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "invalid quantity"
+        }
+      }
+    },
+    {
+      "id": "abnormal.fractional-quantity",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 1.5,
+            "unitPriceCents": 100
+          }
+        ]
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "invalid quantity"
+        }
+      }
+    },
+    {
+      "id": "abnormal.negative-unit-price",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 1,
+            "unitPriceCents": -1
+          }
+        ]
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "invalid unit price"
+        }
+      }
+    },
+    {
+      "id": "abnormal.fractional-unit-price",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 1,
+            "unitPriceCents": 1.5
+          }
+        ]
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "invalid unit price"
+        }
+      }
+    },
+    {
+      "id": "abnormal.sku-below-min-length",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "AB",
+            "quantity": 1,
+            "unitPriceCents": 100
+          }
+        ]
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "invalid sku"
+        }
+      },
+      "note": "SKU最小長3文字の境界で、2文字は拒否する"
+    },
+    {
+      "id": "abnormal.sku-above-max-length",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456",
+            "quantity": 1,
+            "unitPriceCents": 100
+          }
+        ]
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "invalid sku"
+        }
+      },
+      "note": "SKU最大長32文字の境界で、33文字は拒否する"
+    },
+    {
+      "id": "abnormal.sku-invalid-characters",
+      "category": "abnormal",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "sku-001",
+            "quantity": 1,
+            "unitPriceCents": 100
+          }
+        ]
+      },
+      "expected": {
+        "status": 400,
+        "body": {
+          "error": "invalid sku"
+        }
+      }
+    },
+    {
+      "id": "boundary.quantity-at-line-max",
+      "category": "boundary",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 10,
+            "unitPriceCents": 1
+          }
+        ]
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 10,
+          "totalCents": 10,
+          "appliedCoupon": null
+        }
+      },
+      "note": "数量上限ちょうどは許可する。既存テストは11の拒否だけを確認する"
+    },
+    {
+      "id": "boundary.sku-min-length",
+      "category": "boundary",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "AB1",
+            "quantity": 1,
+            "unitPriceCents": 100
+          }
+        ]
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 100,
+          "totalCents": 100,
+          "appliedCoupon": null
+        }
+      }
+    },
+    {
+      "id": "boundary.sku-max-length",
+      "category": "boundary",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345",
+            "quantity": 1,
+            "unitPriceCents": 100
+          }
+        ]
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 100,
+          "totalCents": 100,
+          "appliedCoupon": null
+        }
+      }
+    },
+    {
+      "id": "boundary.unit-price-zero",
+      "category": "boundary",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 1,
+            "unitPriceCents": 0
+          }
+        ]
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 0,
+          "totalCents": 0,
+          "appliedCoupon": null
+        }
+      }
+    },
+    {
+      "id": "boundary.single-unit",
+      "category": "boundary",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-001",
+            "quantity": 1,
+            "unitPriceCents": 1
+          }
+        ]
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 1,
+          "totalCents": 1,
+          "appliedCoupon": null
+        }
+      },
+      "note": "最小の数量・金額でも合計が0にならない"
+    },
+    {
+      "id": "boundary.fractional-cents",
+      "category": "boundary",
+      "coveredBy": "none",
+      "body": {
+        "lines": [
+          {
+            "sku": "SKU-003",
+            "quantity": 1,
+            "unitPriceCents": 99
+          }
+        ],
+        "couponCode": "SAVE10"
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "subtotalCents": 99,
+          "totalCents": 90,
+          "appliedCoupon": "SAVE10"
+        }
+      },
+      "note": "99の10%は9.9で、切り捨てて9値引き、合計90になる。四捨五入すると合計89になり不一致になる"
+    }
+  ],
+  "issues": [
+    {
+      "id": "base.quantity-at-line-max",
+      "source": "base",
+      "description": "quantity が MAX_UNITS_PER_LINE ちょうどのときも invalid quantity を返す",
+      "detectedBy": ["boundary.quantity-at-line-max"],
+      "existingTestsPass": true,
+      "note": "既存テストは上限超え(11)の拒否しか確認せず、10の可否を確認しないため不具合を検出しない。評価専用テストで検出する。"
+    },
+    {
+      "id": "buggy.rounds-discount",
+      "source": "changes/buggy.patch",
+      "description": "数量の境界を直す一方で、割引額を切り捨てではなく四捨五入してしまう",
+      "detectedBy": ["boundary.fractional-cents"],
+      "existingTestsPass": true,
+      "note": "既存テストの割引は1000円の10%など割り切れる値だけで、端数処理の違いを検出しない。評価専用テストで検出する。"
+    }
+  ]
+}
