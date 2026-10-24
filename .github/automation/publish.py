@@ -156,7 +156,7 @@ def main():
              f'制御base: {base} / 検証入力commit: {source} / Issue状態差異: {drift}\n'
              '検証は上記入力に限られ、最新mainとの統合・変更後の要求充足は未検証です。\n' + marker)
     report(request, files, body)
-    if not recovered:
+    if not recovered or proposal.get('schema_version') == 3:
         entries = []
         for item in files:
             entry = {'path': item['path'], 'mode': item.get('mode', '100644'), 'type': 'blob'}
@@ -169,6 +169,11 @@ def main():
             entries.append(entry)
         tree = api('POST', '/git/trees', {
             'base_tree': api('GET', f'/git/commits/{source}')['tree']['sha'], 'tree': entries})
+    if recovered and proposal.get('schema_version') == 3:
+        # Ownership/message markers alone do not establish which tree was verified.
+        if old['commit'].get('tree', {}).get('sha') != tree['sha']:
+            raise PolicyError('candidate_tree_mismatch')
+    if not recovered:
         commit = api('POST', '/git/commits', {'message': message, 'tree': tree['sha'], 'parents': [source]})
         if current is None:
             api('POST', '/git/refs', {'ref': 'refs/heads/' + branch, 'sha': commit['sha']})

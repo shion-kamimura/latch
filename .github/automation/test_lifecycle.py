@@ -42,7 +42,7 @@ class GitHubMock:
         if path == '/git/commits':
             sha = hashlib.sha256(json.dumps(data).encode()).hexdigest()[:40]
             self.commits[sha] = {'committer': {'login': 'github-actions[bot]'},
-                                 'commit': {'message': data['message']},
+                                 'commit': {'message': data['message'], 'tree': {'sha': data['tree']}},
                                  'parents': [{'sha': p} for p in data['parents']]}
             return {'sha': sha}
         if path == '/git/refs' or path.startswith('/git/refs/heads/'):

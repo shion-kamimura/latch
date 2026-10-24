@@ -208,7 +208,7 @@ keyは専用namespace `latch-base-store-v1`、OS / architecture、Node / pnpm固
 
 成功は「実行したチェックが成功」、失敗は各checkのfailed / timeout、依存環境不能はenvironment_unavailable、未実行はnot_runとして個別に表示します。AIの完了・不完了も独立した項目です。いずれも要件全体の充足を証明しません。検証用runnerの起動・image build・復元が失敗して結果を作れなかった場合は判定不能であり、成功した過去の結果を新しい検証結果として掲載しません。
 
-PRには候補digest、snapshot digest、検証sourceと公開commit、生成run / attempt、検証run / attempt・ログURLを記載します。同じ候補の検証再試行ではcommit識別子をチェック結果から独立させ、同じbot commitのPR本文だけを更新します。PR API失敗後の回復、要求変更時のRefs、bot所有権、観測先端・人間コミット・閉じたPRの保護を維持します。先端が変わった場合は結果を新しい先端へ適用せず、Artifactを残して停止します。新しい候補の作成は別の通常実行です。
+PRには候補digest、snapshot digest、検証sourceと公開commit、生成run / attempt、検証run / attempt・ログURLを記載します。同じ候補の検証再試行ではcommit識別子をチェック結果から独立させ、同じbot commitのPR本文だけを更新します。再利用時は所有マーカーと親commitに加え、固定sourceと保存差分から作ったGit treeが公開commitのtreeと一致することも確認します。PR API失敗後の回復、要求変更時のRefs、bot所有権、観測先端・人間コミット・閉じたPRの保護を維持します。先端が変わった場合は結果を新しい先端へ適用せず、Artifactを残して停止します。新しい候補の作成は別の通常実行です。
 
 通常CIの起動は成功条件にしません。GITHUB_TOKENでDraft PRを作成する前に共通の独立検証jobへ到達し、後からも手動で同じ候補を検証できます。PAT追加、人間によるpush、自動マージは不要です。
 

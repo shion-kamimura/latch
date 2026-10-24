@@ -220,6 +220,14 @@ class CandidateTests(unittest.TestCase):
                     self.assertRaisesRegex(PolicyError, 'candidate_identity_mismatch'):
                 publish.main()
             self.assertEqual(len(github.writes), writes)
+            # Even identical ownership markers/parents cannot bind a different Git tree.
+            body = github.prs[0]['body']
+            github.commits[head]['commit']['tree']['sha'] = 'foreign-tree'
+            with self.assertRaisesRegex(PolicyError, 'candidate_tree_mismatch'):
+                publish_attempt('3')
+            self.assertEqual(github.head, head)
+            self.assertEqual(github.prs[0]['body'], body)
+            github.commits[head]['commit']['tree']['sha'] = 'new-tree'
             github.head = 'd' * 40
             github.commits[github.head] = {'committer': {'login': 'human'}, 'commit': {'message': 'human'}}
             writes = len(github.writes)
