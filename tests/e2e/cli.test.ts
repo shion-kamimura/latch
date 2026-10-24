@@ -132,6 +132,23 @@ test('built CLI warns and fails when only untracked changes exist', () => {
   expect(result.stderr).not.toContain('export const untracked');
 });
 
+test('built CLI plan fails closed without a permission profile', () => {
+  const repo = repository();
+  repo.write('src/a.ts', 'export const value = 2;\n');
+  repo.commit('change value');
+
+  const result = runBuilt(
+    ['plan', '--base', 'origin/main', '--issue-file', 'issue.md'],
+    repo.root,
+  );
+
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(2);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toContain('--profile');
+  expect(result.stderr).toContain('LATCH_PROFILE');
+});
+
 test('built CLI returns exit code 1 outside a repository', () => {
   const directory = mkdtempSync(join(tmpdir(), 'latch-not-a-repository-'));
   try {
