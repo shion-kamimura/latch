@@ -26,6 +26,7 @@ jobs:
     outputs:
       base: ${{ steps.issue.outputs.base }}
       source: ${{ steps.issue.outputs.source }}
+      request_artifact: issue-request-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,14 +42,15 @@ jobs:
             await prepare({github, context, core});
       - uses: actions/upload-artifact@v4
         with:
-          name: issue-request
+          name: issue-request-${{ github.run_attempt }}
           path: request/issue.json
           retention-days: 1
 
   implement:
     needs: prepare
     outputs:
-      proposal_ready: ${{ steps.proposal.outputs.ready }}
+      candidate_ready: ${{ steps.proposal.outputs.ready }}
+      candidate_attempt: ${{ steps.proposal.outputs.attempt }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -65,7 +67,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: issue-request
+          name: ${{ needs.prepare.outputs.request_artifact }}
           path: ${{ runner.temp }}/request
       - name: Build pinned agent tools (no API key)
         run: docker build -f .github/automation/Dockerfile -t latch-agent .
@@ -73,8 +75,9 @@ jobs:
         run: docker build -f .github/automation/Dockerfile.gateway -t latch-gateway .
       - name: Verify OpenCode startup without secrets or network
         run: docker run --rm --network none --cap-drop=ALL --security-opt=no-new-privileges --read-only --tmpfs /tmp:rw,nosuid,size=512m -e XDG_DATA_HOME=/tmp/xdg/data -e XDG_CONFIG_HOME=/tmp/xdg/config -e XDG_CACHE_HOME=/tmp/xdg/cache -e XDG_STATE_HOME=/tmp/xdg/state latch-agent opencode --version
-      - name: Implement, repair, and independently verify in containers
+      - name: Implement and save candidate in containers
         env:
+          LATCH_IMPLEMENT_ONLY: '1'
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           CANDIDATE_PATH: ${{ github.workspace }}/candidate-input
           REQUEST_PATH: ${{ runner.temp }}/request/issue.json
@@ -96,42 +99,30 @@ jobs:
         id: proposal
         if: always()
         env:
-          PROPOSAL_PATH: ${{ runner.temp }}/proposal/proposal.json
+          PROPOSAL_PATH: ${{ runner.temp }}/proposal/candidate.json
         run: |
-          if [ -f "$PROPOSAL_PATH" ]; then echo 'ready=true' >> "$GITHUB_OUTPUT"; fi
+          if [ -f "$PROPOSAL_PATH" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+            echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/upload-artifact@v4
         if: always() && steps.proposal.outputs.ready == 'true'
         with:
-          name: issue-proposal
-          path: ${{ runner.temp }}/proposal/proposal.json
+          name: issue-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/proposal/candidate.json
           if-no-files-found: error
           retention-days: 1
 
-  publish:
+  validate:
     needs: [prepare, implement]
-    if: always() && needs.prepare.result == 'success' && needs.implement.outputs.proposal_ready == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    if: always() && needs.prepare.result == 'success' && needs.implement.outputs.candidate_ready == 'true'
     permissions:
+      actions: read
       contents: write
       pull-requests: write
       issues: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.base }}
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: issue-request
-          path: ${{ runner.temp }}/request
-      - uses: actions/download-artifact@v4
-        with:
-          name: issue-proposal
-          path: ${{ runner.temp }}/proposal
-      - name: Validate data and create Draft PR without running generated code
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REQUEST_PATH: ${{ runner.temp }}/request/issue.json
-          OUTPUT_PATH: ${{ runner.temp }}/proposal
-        run: python3 .github/automation/publish.py
+    uses: ./.github/workflows/validate-candidate.yml
+    with:
+      control_base: ${{ needs.prepare.outputs.base }}
+      origin_run_id: ${{ github.run_id }}
+      origin_attempt: ${{ needs.implement.outputs.candidate_attempt }}

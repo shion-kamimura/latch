@@ -559,7 +559,7 @@ def diagnostic_command(command, log_path, stage, limit):
         return result
 
 
-def save_execution(output, temporary, request, checks, generated=None, before=None):
+def save_execution(output, temporary, request, checks, generated=None, before=None, artifact_prefix='issue-diagnostics'):
     directory = Path(output, 'stages')
     directory.mkdir(exist_ok=True)
     records = []
@@ -582,7 +582,7 @@ def save_execution(output, temporary, request, checks, generated=None, before=No
     run_id = os.environ.get('GITHUB_RUN_ID', '')
     attempt = attempt if attempt.isascii() and attempt.isdecimal() and len(attempt) <= 20 else 'unknown'
     run_id = run_id if run_id.isascii() and run_id.isdecimal() and len(run_id) <= 20 else 'unknown'
-    artifact = f'issue-diagnostics-{run_id}-{attempt}'
+    artifact = f'{artifact_prefix}-{run_id}-{attempt}'
     lines = [f'## Issue #{request["number"]} execution diagnostics',
              f'Control base: `{request["base"]}`', f'Verification source: `{request.get("source", request["base"])}`',
              f'Candidate snapshot SHA-256: `{digest or "unavailable"}`',
@@ -677,6 +677,49 @@ def prepare_dependencies(work, common, registry, network, name, temporary):
                                 log_path, 'dependency_lifecycle', 180)
     if result.returncode:
         raise ValueError('stage=dependencies error=install_script_failed')
+
+
+def verify_checks(work, common, registry, dependency_network, name, temporary, files, containers, control):
+    checks = {check: check_result() for check in [*CHECKS, 'dependencies']}
+    dependency_name = name + '-install'
+    containers.extend([dependency_name, dependency_name + '-scripts'])
+    if not files:
+        checks = {check: check_result(reason='no_changes') for check in checks}
+    if files:
+        try:
+            prepare_dependencies(work, common, registry, dependency_network, dependency_name, temporary)
+            checks['dependencies'] = check_result('passed', 0, 'exit_code')
+        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+            checks['dependencies'] = check_result('environment_unavailable', reason=failure_reason(error))
+            for check in CHECKS:
+                checks[check] = check_result(reason='dependencies_unavailable')
+        finally:
+            # Collection never races a timed-out installer or lifecycle script.
+            for install_container in [dependency_name, dependency_name + '-scripts']:
+                result = subprocess.run(['docker', 'inspect', install_container], stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, timeout=10)
+                if result.returncode == 0:
+                    stop_container(install_container)
+        if checks['dependencies']['status'] == 'passed':
+            for index, check in enumerate(CHECKS):
+                # The default test script already builds before CLI E2E.
+                if check == 'build' and checks['test']['status'] == 'passed':
+                    manifest = json.loads((work / 'package.json').read_text())
+                    if manifest.get('scripts', {}).get('test') == 'vitest run --project unit --project integration && pnpm build && vitest run --project e2e':
+                        checks[check] = check_result('not_run', reason='covered_by_test')
+                        continue
+                verifier = name + '-check-' + str(index)
+                containers.append(verifier)
+                checks[check] = independent_check(
+                    ['docker', 'run', '--name', verifier, '--network', 'none', *common,
+                     'latch-agent', 'pnpm', check], Path(temporary) / (check.replace(':', '_') + '.log'), verifier)
+                print('stage=independent_check check=' + check + ' status=' + checks[check]['status'], flush=True)
+        if any(maintenance_path(item['path']) for item in files):
+            verifier = name + '-automation-check'
+            containers.append(verifier)
+            checks[AUTOMATION_CHECK] = independent_check(automation_command(work, control, verifier),
+                                                         Path(temporary) / (AUTOMATION_CHECK + '.log'), verifier)
+    return checks
 
 
 def main():
@@ -804,46 +847,16 @@ def main():
                     pr_title = read_pr_title(work)
                 except PolicyError as error:
                     title_error = error
-            checks = {check: check_result() for check in CHECKS}
-            checks['dependencies'] = check_result()
-            dependency_name = name + '-install'
-            containers.extend([dependency_name, dependency_name + '-scripts'])
-            if not files:
-                checks = {check: check_result(reason='no_changes') for check in checks}
-            if files:
-                try:
-                    prepare_dependencies(work, common, registry, dependency_network, dependency_name, temporary)
-                    checks['dependencies'] = check_result('passed', 0, 'exit_code')
-                except (ValueError, OSError, subprocess.TimeoutExpired) as error:
-                    checks['dependencies'] = check_result('environment_unavailable', reason=failure_reason(error))
-                    for check in CHECKS:
-                        checks[check] = check_result(reason='dependencies_unavailable')
-                finally:
-                    # Collection never races a timed-out installer or lifecycle script.
-                    for install_container in [dependency_name, dependency_name + '-scripts']:
-                        result = subprocess.run(['docker', 'inspect', install_container], stdout=subprocess.DEVNULL,
-                                                stderr=subprocess.DEVNULL, timeout=10)
-                        if result.returncode == 0:
-                            stop_container(install_container)
-                if checks['dependencies']['status'] == 'passed':
-                    for index, check in enumerate(CHECKS):
-                        # The default test script already builds before CLI E2E.
-                        if check == 'build' and checks['test']['status'] == 'passed':
-                            manifest = json.loads((work / 'package.json').read_text())
-                            if manifest.get('scripts', {}).get('test') == 'vitest run --project unit --project integration && pnpm build && vitest run --project e2e':
-                                checks[check] = check_result('not_run', reason='covered_by_test')
-                                continue
-                        verifier = name + '-check-' + str(index)
-                        containers.append(verifier)
-                        checks[check] = independent_check(
-                            ['docker', 'run', '--name', verifier, '--network', 'none', *common,
-                             'latch-agent', 'pnpm', check], Path(temporary) / (check.replace(':', '_') + '.log'), verifier)
-                        print('stage=independent_check check=' + check + ' status=' + checks[check]['status'], flush=True)
-                if any(maintenance_path(item['path']) for item in files):
-                    verifier = name + '-automation-check'
-                    containers.append(verifier)
-                    checks[AUTOMATION_CHECK] = independent_check(automation_command(work, control, verifier),
-                                                                 Path(temporary) / (AUTOMATION_CHECK + '.log'), verifier)
+            if os.environ.get('LATCH_IMPLEMENT_ONLY') == '1':
+                if title_error is not None:
+                    raise title_error
+                from candidate import save_bundle
+                save_bundle(output, request, files, implementation, pr_title, generated)
+                outcome = 'candidate_saved' if implementation == 'completed' else 'partial_candidate'
+                if implementation != 'completed':
+                    raise ValueError('stage=proposal error=partial_results')
+                return
+            checks = verify_checks(work, common, registry, dependency_network, name, temporary, files, containers, control)
             save_proposal(output, before, work, generated, files, checks, implementation, pr_title)
             passed = all(item['status'] == 'passed' or item['reason'] == 'covered_by_test' for item in checks.values())
             outcome = 'proposal_ready' if passed and implementation == 'completed' and title_error is None else 'partial_proposal'

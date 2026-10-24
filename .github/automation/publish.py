@@ -7,6 +7,7 @@ from pathlib import Path
 import urllib.error
 import urllib.request
 
+import candidate
 from run import CHECKS
 from policy import AUTOMATION_CHECK, PolicyError, report, validate_files, validate_issue, validate_pr_title, validate_request, maintenance_path, MAX_PROPOSAL_BYTES
 
@@ -17,7 +18,9 @@ def validate(proposal, maintenance=False):
     if not files:
         return []
     expected_names = CHECKS + ([AUTOMATION_CHECK] if any(maintenance_path(item['path']) for item in files) else [])
-    if proposal.get('schema_version') == 2:
+    if proposal.get('schema_version') not in {None, 1, 2, 3}:
+        raise PolicyError('unsupported_proposal_schema')
+    if proposal.get('schema_version') in {2, 3}:
         if (set(checks) != set(expected_names + ['dependencies'])
                 or proposal.get('implementation') not in {'completed', 'timeout', 'api_error', 'startup_error',
                    'abnormal_exit', 'agent_error', 'configuration_error', 'model_configuration_error',
@@ -93,6 +96,14 @@ def main():
         raise ValueError('Invalid proposal size/type')
     proposal = json.loads(proposal_path.read_text())
     validate_request(request)
+    if proposal.get('schema_version') == 3:
+        bound = candidate.validate_proposal(proposal, request, os.environ['GITHUB_REPOSITORY'],
+                                           os.environ['GITHUB_RUN_ID'], os.environ.get('VALIDATION_ATTEMPT', os.environ['GITHUB_RUN_ATTEMPT']))
+        expected = candidate.read_json(os.environ['BUNDLE_PATH'])
+        if bound != expected:
+            raise PolicyError('candidate_identity_mismatch')
+    elif os.environ.get('BUNDLE_PATH'):
+        raise PolicyError('unsupported_proposal_schema')
     files = validate(proposal, request.get('allow_maintenance', False))
     if not files:
         print('No changes; no PR created.')
@@ -106,8 +117,10 @@ def main():
     expected_head = request.get('expected_head')
     source = request.get('source', base)
     marker = '<!-- latch-owner:' + issue['node_id'] + ' -->'
-    proposal_id = hashlib.sha256(json.dumps({'source': source, 'request': request, 'proposal': proposal},
-                                           sort_keys=True).encode()).hexdigest()
+    # Verification-only retries update evidence, never create a new candidate commit.
+    proposal_id = (candidate.digest(proposal['candidate_manifest']) if proposal.get('schema_version') == 3 else
+                   hashlib.sha256(json.dumps({'source': source, 'request': request, 'proposal': proposal},
+                                             sort_keys=True).encode()).hexdigest())
     message = f'{title}\n\nlatch-proposal:{proposal_id}\n' + marker
     try:
         current = api('GET', '/git/ref/heads/' + branch)['object']['sha']
@@ -166,6 +179,16 @@ def main():
         latest = api('GET', '/git/ref/heads/' + branch)['object']['sha']
         if latest != commit['sha']:
             raise ValueError('Branch changed after publication; preserve artifact and inspect')
+    published = current if recovered else commit['sha']
+    if api('GET', '/git/ref/heads/' + branch)['object']['sha'] != published:
+        raise ValueError('Branch changed before evidence update; preserve result without overwriting')
+    body += '\n\n公開対象commit: ' + published
+    if proposal.get('schema_version') == 3:
+        m, v = proposal['candidate_manifest'], proposal['validation']
+        body += ('\n候補SHA256: ' + m['candidate_digest'] + '\n候補snapshot SHA256: ' + m['snapshot_digest']
+                 + '\n生成run/attempt: ' + m['origin_run'] + '/' + m['origin_attempt']
+                 + '\n検証run/attempt: ' + v['run_id'] + '/' + v['attempt']
+                 + '\n検証image: ' + v['image'] + '\n検証policy SHA256: ' + v['control_digest'])
     if open_pr:
         result = api('PATCH', '/pulls/' + str(open_pr['number']), {'title': title, 'body': body})
     else:

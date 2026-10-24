@@ -1,0 +1,119 @@
+name: Validate and publish fixed candidate
+
+on:
+  workflow_call:
+    inputs:
+      control_base:
+        required: true
+        type: string
+      origin_run_id:
+        required: true
+        type: string
+      origin_attempt:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      proposal_ready: ${{ steps.proposal.outputs.ready }}
+      proposal_artifact: ${{ steps.proposal.outputs.artifact }}
+      validation_attempt: ${{ steps.proposal.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.control_base }}
+          persist-credentials: false
+      - name: Authorize and download immutable candidate data
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGIN_RUN_ID: ${{ inputs.origin_run_id }}
+          ORIGIN_ATTEMPT: ${{ inputs.origin_attempt }}
+          BUNDLE_PATH: ${{ runner.temp }}/candidate/candidate.json
+        run: python3 -B .github/automation/resume.py
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.candidate.outputs.source }}
+          path: candidate-input
+          persist-credentials: false
+      - name: Build tools from original control base without secrets
+        run: docker build -f .github/automation/Dockerfile -t latch-agent .
+      - name: Independently verify saved candidate without AI credentials
+        env:
+          BUNDLE_PATH: ${{ runner.temp }}/candidate/candidate.json
+          CANDIDATE_PATH: ${{ github.workspace }}/candidate-input
+          OUTPUT_PATH: ${{ runner.temp }}/verification
+          ORIGIN_RUN_ID: ${{ inputs.origin_run_id }}
+          ORIGIN_ATTEMPT: ${{ inputs.origin_attempt }}
+        run: python3 -B .github/automation/verify.py
+      - name: Save safe validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-validation-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/verification/stages/*.safe.json
+            ${{ runner.temp }}/verification/execution-summary.md
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Check bound proposal availability
+        if: always()
+        id: proposal
+        env:
+          PROPOSAL_PATH: ${{ runner.temp }}/verification/proposal.json
+        run: |
+          if [ -f "$PROPOSAL_PATH" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+            echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+            echo "artifact=issue-proposal-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.proposal.outputs.ready == 'true'
+        with:
+          name: ${{ steps.proposal.outputs.artifact }}
+          path: ${{ runner.temp }}/verification/proposal.json
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: verify
+    if: always() && needs.verify.outputs.proposal_ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.control_base }}
+          persist-credentials: false
+      - name: Recheck origin, expiry, request and candidate data
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGIN_RUN_ID: ${{ inputs.origin_run_id }}
+          ORIGIN_ATTEMPT: ${{ inputs.origin_attempt }}
+          BUNDLE_PATH: ${{ runner.temp }}/candidate/candidate.json
+        run: python3 -B .github/automation/resume.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.verify.outputs.proposal_artifact }}
+          path: ${{ runner.temp }}/verification
+      - name: Publish bound results without executing candidate code
+        env:
+          VALIDATION_ATTEMPT: ${{ needs.verify.outputs.validation_attempt }}
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_PATH: ${{ runner.temp }}/candidate/candidate.json
+          REQUEST_PATH: ${{ runner.temp }}/candidate/issue.json
+          OUTPUT_PATH: ${{ runner.temp }}/verification
+        run: python3 -B .github/automation/publish.py

@@ -1,0 +1,55 @@
+name: Verify saved candidate
+run-name: 'Verify candidate from run ${{ inputs.origin_run_id }} / attempt ${{ inputs.origin_attempt }}'
+
+on:
+  workflow_dispatch:
+    inputs:
+      origin_run_id:
+        description: Run ID of Issue to Draft PR that saved the candidate
+        required: true
+        type: string
+      origin_attempt:
+        description: Attempt that generated the candidate (not the latest verification attempt)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: verify-candidate-${{ inputs.origin_run_id }}-${{ inputs.origin_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      base: ${{ steps.origin.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Authorize main origin and current actors
+        id: origin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGIN_RUN_ID: ${{ inputs.origin_run_id }}
+          ORIGIN_ATTEMPT: ${{ inputs.origin_attempt }}
+        run: python3 -B .github/automation/resume.py --inspect
+
+  validate:
+    needs: prepare
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      issues: read
+    uses: ./.github/workflows/validate-candidate.yml
+    with:
+      control_base: ${{ needs.prepare.outputs.base }}
+      origin_run_id: ${{ inputs.origin_run_id }}
+      origin_attempt: ${{ inputs.origin_attempt }}
