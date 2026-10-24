@@ -1,9 +1,13 @@
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, expect, test } from 'vitest';
+import { discoverVitestCandidates } from '../../src/plan/test-candidates.js';
+import { resolveVerificationInputs } from '../../src/verify/resolve-inputs.js';
+import { createProfileDirectory, profileContent } from '../helpers/plan.js';
 import {
   createTestRepository,
   type TestRepository,
@@ -44,6 +48,250 @@ test.each(['--version', '-v'])(
 );
 
 const repositories: TestRepository[] = [];
+const directories: { cleanup(): void }[] = [];
+const servers: Server[] = [];
+
+const fixtureRoot = fileURLToPath(
+  new URL('../../fixtures/order-api', import.meta.url),
+);
+
+const GENERATED_CODE = [
+  "import { expect, test } from 'vitest';",
+  "import { calculateOrder } from '../../src/api.ts';",
+  '',
+  "test('floors fractional discount cents', () => {",
+  '  expect(',
+  '    calculateOrder({',
+  "      lines: [{ sku: 'SKU-003', quantity: 1, unitPriceCents: 99 }],",
+  "      couponCode: 'SAVE10',",
+  '    }),',
+  '  ).toEqual({',
+  '    ok: true,',
+  "    value: { subtotalCents: 99, totalCents: 90, appliedCoupon: 'SAVE10' },",
+  '  });',
+  '});',
+  '',
+].join('\n');
+
+function temporaryDirectory(): { readonly root: string; cleanup(): void } {
+  const directory = mkdtempSync(join(tmpdir(), 'latch-e2e-run-'));
+  const entry = {
+    root: directory,
+    cleanup() {
+      rmSync(directory, { recursive: true, force: true });
+    },
+  };
+  directories.push(entry);
+  return entry;
+}
+
+function orderRepository(): TestRepository {
+  const repo = createTestRepository();
+  repositories.push(repo);
+  for (const path of [
+    'package.json',
+    'tsconfig.json',
+    'vitest.config.ts',
+    'src/api.ts',
+    'test/existing.test.ts',
+    'issue.md',
+  ]) {
+    repo.write(path, readFileSync(join(fixtureRoot, path)));
+  }
+  repo.commit('fixture base');
+  repo.git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+  repo.git(['apply', join(fixtureRoot, 'changes', 'correct.patch')]);
+  repo.commit('apply correct change');
+  return repo;
+}
+
+function runPlanFile(repo: TestRepository): string {
+  const directory = temporaryDirectory();
+  const snapshot = resolveVerificationInputs(
+    {
+      base: 'origin/main',
+      issueFile: 'issue.md',
+      includeUntracked: [],
+      json: false,
+    },
+    repo.root,
+  );
+  const candidates = discoverVitestCandidates(repo.root);
+  const conditionId = 'cond-discount-floor';
+  const path = join(directory.root, 'plan.json');
+  writeFileSync(
+    path,
+    JSON.stringify(
+      {
+        phase: 'requirement-planning',
+        verification: 'not-run',
+        input: {
+          repository: snapshot.repository,
+          base: {
+            ref: snapshot.base.ref,
+            commit: snapshot.base.commit,
+            mergeBase: snapshot.base.mergeBase,
+          },
+          issue: {
+            path: snapshot.issue?.path,
+            title: snapshot.issue?.title,
+            state: snapshot.issue?.state,
+            source: snapshot.issue?.source,
+          },
+          diff: {
+            files: snapshot.diff.files,
+            excluded: snapshot.diff.excluded,
+            digest: snapshot.diff.digest,
+          },
+          options: {
+            base: 'origin/main',
+            issueFile: 'issue.md',
+            includeUntracked: [],
+          },
+          snapshotDigest: snapshot.digest,
+        },
+        requirements: [
+          {
+            id: 'req-discount',
+            text: 'Discounts are floored to whole cents.',
+            source: {
+              kind: 'issue',
+              path: 'issue.md',
+              line: 11,
+              label: 'issue:issue.md#L11',
+            },
+            origin: 'issue-explicit',
+            state: 'unverified',
+            ambiguity: null,
+            conditions: [
+              {
+                id: conditionId,
+                requirementId: 'req-discount',
+                text: '99 cents with SAVE10 totals 90 cents.',
+                source: {
+                  kind: 'diff',
+                  path: 'src/api.ts',
+                  line: null,
+                  label: 'diff:src/api.ts',
+                },
+                origin: 'diff-inferred',
+                state: 'unverified',
+                ambiguity: null,
+                existingTestCandidateIds: [],
+                missingScenarios: [
+                  {
+                    id: 'scenario-discount-floor',
+                    conditionId,
+                    description:
+                      'A fractional discount cent is floored, not rounded.',
+                    rationale:
+                      'Existing tests only use amounts divisible by 10.',
+                    state: 'unverified',
+                    evidence: 'none',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        testCandidates: candidates.candidates.map((candidate) => ({
+          id: candidate.id,
+          path: candidate.path,
+          name: candidate.name,
+          framework: 'vitest',
+          matchedConditionIds: [],
+        })),
+        unverified: ['Tests have not run.'],
+        notes: [],
+        warnings: [],
+        digest: 'test-plan-digest',
+        rerunCommand: 'latch plan --base origin/main --issue-file issue.md',
+      },
+      null,
+      2,
+    ),
+  );
+  return path;
+}
+
+function runBuiltAsync(
+  args: string[],
+  root: string,
+  env: NodeJS.ProcessEnv,
+): Promise<{
+  status: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  error?: Error;
+}> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [cliPath, ...args], {
+      cwd: root,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on('error', (error) => {
+      resolve({ status: null, signal: null, stdout, stderr, error });
+    });
+    child.on('close', (status, signal) => {
+      resolve({ status, signal, stdout, stderr });
+    });
+  });
+}
+
+const SLOW_GENERATED_CODE = [
+  "import { test } from 'vitest';",
+  '',
+  "test('exceeds the execution budget', () => {",
+  '  const started = Date.now();',
+  '  while (Date.now() - started < 5_000) {}',
+  '});',
+  '',
+].join('\n');
+
+async function llmServer(code = GENERATED_CODE): Promise<string> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                tests: [
+                  {
+                    conditionId: 'cond-discount-floor',
+                    name: 'floors fractional discount cents',
+                    rationale: '99 * 10% is 9.9 cents, floored to 9.',
+                    code,
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+    );
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('failed to start the local LLM server');
+  }
+  return `http://127.0.0.1:${address.port}/v1`;
+}
 
 function repository(): TestRepository {
   const repo = createTestRepository();
@@ -64,6 +312,8 @@ function runBuilt(args: string[], root: string) {
 
 afterEach(() => {
   for (const repo of repositories.splice(0)) repo.cleanup();
+  for (const directory of directories.splice(0)) directory.cleanup();
+  for (const server of servers.splice(0)) server.close();
 });
 
 test('built CLI resolves inputs as JSON without claiming verification', () => {
@@ -158,4 +408,136 @@ test('built CLI returns exit code 1 outside a repository', () => {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('built CLI run prints a schema-valid verification report as JSON', async () => {
+  const repo = orderRepository();
+  const planPath = runPlanFile(repo);
+  const endpoint = await llmServer();
+  const profileDirectory = createProfileDirectory();
+  directories.push(profileDirectory);
+  const profile = profileDirectory.write(
+    'profile.json',
+    profileContent(repo.root, {
+      allowedEndpoint: endpoint,
+      connectionEndpoint: endpoint,
+    }),
+  );
+
+  const result = await runBuiltAsync(
+    ['run', '--plan', planPath, '--profile', profile, '--json'],
+    repo.root,
+    {
+      PATH: process.env.PATH ?? '',
+      LANG: process.env.LANG ?? 'C',
+      LATCH_API_KEY: 'secret-value',
+    },
+  );
+
+  expect(result.error).toBeUndefined();
+  expect(result.signal).toBeNull();
+  expect(result.status).toBe(0);
+  expect(result.stderr).not.toContain('secret-value');
+  expect(result.stdout).not.toContain('secret-value');
+  const report = JSON.parse(result.stdout) as {
+    schemaVersion: string;
+    verification: string;
+    input: {
+      diff: { kinds: { committed: number } };
+      issue: { input: string; source: string };
+    };
+    requirements: { requirementId: string; state: string }[];
+    conditions: {
+      conditionId: string;
+      state: string;
+      evidenceIds: string[];
+    }[];
+    evidence: { id: string; status: string }[];
+    disclaimer: string;
+  };
+  expect(report.schemaVersion).toBe('1');
+  expect(report.verification).toBe('completed');
+  expect(report.input.diff.kinds.committed).toBeGreaterThan(0);
+  expect(report.input.issue).toMatchObject({
+    input: 'issue-file',
+    source: 'issue.md',
+  });
+  expect(report.requirements).toContainEqual(
+    expect.objectContaining({
+      requirementId: 'req-discount',
+      state: 'verified',
+    }),
+  );
+  expect(report.conditions[0]).toMatchObject({
+    conditionId: 'cond-discount-floor',
+    state: 'verified',
+  });
+  const evidenceId = report.conditions[0]?.evidenceIds[0];
+  expect(report.evidence.find((item) => item.id === evidenceId)?.status).toBe(
+    'passed',
+  );
+  expect(report.disclaimer).toContain('正しさの証明ではありません');
+}, 30_000);
+
+test('built CLI run prints a partial report and exits 2 when execution is impossible', async () => {
+  const repo = orderRepository();
+  const planPath = runPlanFile(repo);
+  const endpoint = await llmServer(SLOW_GENERATED_CODE);
+  const profileDirectory = createProfileDirectory();
+  directories.push(profileDirectory);
+  const profile = profileDirectory.write(
+    'profile.json',
+    profileContent(repo.root, {
+      allowedEndpoint: endpoint,
+      connectionEndpoint: endpoint,
+      extra: {
+        execution: {
+          dependencies: { mode: 'runner', registry: null },
+          network: { allowedDestinations: [] },
+          limits: { timeoutMs: 1_000 },
+        },
+      },
+    }),
+  );
+
+  const result = await runBuiltAsync(
+    ['run', '--plan', planPath, '--profile', profile, '--json'],
+    repo.root,
+    {
+      PATH: process.env.PATH ?? '',
+      LANG: process.env.LANG ?? 'C',
+      LATCH_API_KEY: 'secret-value',
+    },
+  );
+
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(2);
+  expect(result.stdout).not.toContain('secret-value');
+  const report = JSON.parse(result.stdout) as {
+    verification: string;
+    partialReasons: string[];
+    conditions: { state: string }[];
+    evidence: { kind: string; status: string }[];
+  };
+  expect(report.verification).toBe('partial');
+  expect(report.partialReasons.length).toBeGreaterThan(0);
+  expect(report.conditions[0]?.state).toBe('execution-impossible');
+  expect(
+    report.evidence.find((item) => item.kind === 'generated')?.status,
+  ).toBe('timeout');
+  expect(result.stderr).toContain('時間上限');
+}, 30_000);
+
+test('built CLI run reports invalid plan input with exit code 1 and no report', () => {
+  const repo = repository();
+  const directory = temporaryDirectory();
+  const planPath = join(directory.root, 'broken-plan.json');
+  writeFileSync(planPath, '{"phase":"wrong"}');
+
+  const result = runBuilt(['run', '--plan', planPath], repo.root);
+
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toContain('計画ファイル');
 });

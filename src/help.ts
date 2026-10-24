@@ -31,13 +31,14 @@ export function getHelp(): string {
     '  --plan <path>               Read a JSON plan produced by latch plan --json',
     '  --profile <path>            Read the user-managed BYOK permission profile',
     '                              outside the worktree (or set LATCH_PROFILE)',
-    '  --json                      Print the execution report as JSON',
+    '  --json                      Print the versioned verification report as JSON',
     '',
     'The verify command resolves inputs only. The plan command extracts',
     'requirements and proposes missing scenarios without executing tests or',
     'target code. The run command generates tests and executes existing and',
-    'generated tests in an isolated copy. No command reports verification success;',
-    'passing tests do not prove overall correctness.',
+    'generated tests in an isolated copy and prints a requirement-to-evidence report.',
+    'No command reports verification success; passing tests do not prove overall',
+    'correctness.',
     '',
   ].join('\n');
 }
