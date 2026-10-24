@@ -17,7 +17,7 @@ def main():
         root = Path(directory)
         source = root / 'source'
         source.mkdir()
-        package = {'name': 'saved-candidate-fixture', 'version': '1.0.0', 'private': True,
+        package = {'name': 'saved-candidate-fixture', 'version': '1.0.0', 'private': True, 'packageManager': 'pnpm@12.14.0',
                    'scripts': {key: 'node check.cjs' for key in run.CHECKS}}
         (source / 'package.json').write_text(json.dumps(package))
         (source / '.npmrc').write_text('manage-package-manager-versions=false\n')
@@ -28,7 +28,7 @@ def main():
                         '--security-opt=no-new-privileges', '--user', f'{os.getuid()}:{os.getgid()}',
                         '--tmpfs', '/tmp:rw,nosuid,size=128m', *run.RUNTIME_ENV,
                         '--mount', f'type=bind,src={source},dst=/work', '-w', '/work',
-                        'latch-agent', 'pnpm', 'install', '--lockfile-only', '--offline', '--ignore-scripts'], check=True)
+                        'latch-agent', *run.PNPM, 'install', '--lockfile-only', '--offline', '--ignore-scripts'], check=True)
         for args in [['init', '-q'], ['add', '.'], ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                      'commit', '-qm', 'fixture']]:
             subprocess.run(['git', '-C', str(source), *args], check=True)

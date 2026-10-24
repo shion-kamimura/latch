@@ -84,7 +84,8 @@ def main():
                          'python:3.12.12-slim-bookworm', 'python', '-B', '/registry.py'], stdout=subprocess.DEVNULL)
             run.execute(['docker', 'network', 'connect', network, registry])
             run.execute(['docker', 'start', registry], stdout=subprocess.DEVNULL)
-            checks = run.verify_checks(work, common, registry, network, name, temporary, data['files'], containers, control)
+            cache = Path(os.environ['DEPENDENCY_STORE_PATH']) if os.environ.get('DEPENDENCY_STORE_PATH') else None
+            checks = run.verify_checks(work, common, registry, network, name, temporary, data['files'], containers, control, base_store=cache)
             value = run.save_proposal(Path(temporary), before, work, generated, data['files'], checks, data['implementation'], data['pr_title'])
             # Schema 3 is explicitly bound; do not interpret a new bundle as a legacy proposal.
             value.update(schema_version=3, candidate_manifest=manifest,

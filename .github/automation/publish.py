@@ -31,7 +31,8 @@ def validate(proposal, maintenance=False):
                     or result['status'] not in {'passed', 'failed', 'timeout', 'not_run', 'environment_unavailable'}
                     or result['reason'] not in {'not_started', 'exit_code', 'time_limit', 'host_io_error',
                        'covered_by_test', 'dependencies_unavailable', 'no_changes', 'dependency_mismatch', 'registry_denied', 'dependency_fetch_failed',
-                       'install_script_failed', 'validation_timeout', 'host_validation_failed'}):
+                       'install_script_failed', 'validation_timeout', 'host_validation_failed', 'dependency_fetch_timeout',
+                       'package_manager_mismatch', 'runtime_unavailable', 'dependency_install_failed', 'dependency_environment_unavailable'}):
                 raise PolicyError('invalid_results')
             code = result['exit_code']
             if result['status'] in {'passed', 'failed'}:

@@ -45,12 +45,28 @@ jobs:
           path: candidate-input
           persist-credentials: false
       - name: Build tools from original control base without secrets
-        run: docker build -f .github/automation/Dockerfile -t latch-agent .
+        run: |
+          docker pull node:26.12.0-bookworm-slim
+          docker build -f .github/automation/Dockerfile -t latch-agent .
+      - name: Compute original fixed-base store key
+        id: store-key
+        continue-on-error: true
+        run: python3 .github/automation/run.py --cache-key >> "$GITHUB_OUTPUT"
+      - name: Restore exact fixed-base store without saving candidate data
+        if: steps.store-key.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/base-pnpm-store
+          key: ${{ steps.store-key.outputs.key }}
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'
       - name: Independently verify saved candidate without AI credentials
         env:
           BUNDLE_PATH: ${{ runner.temp }}/candidate/candidate.json
           CANDIDATE_PATH: ${{ github.workspace }}/candidate-input
           OUTPUT_PATH: ${{ runner.temp }}/verification
+          DEPENDENCY_STORE_PATH: ${{ runner.temp }}/base-pnpm-store
           ORIGIN_RUN_ID: ${{ inputs.origin_run_id }}
           ORIGIN_ATTEMPT: ${{ inputs.origin_attempt }}
         run: python3 -B .github/automation/verify.py

@@ -40,11 +40,11 @@ GitHub Actionsの **Issue to Draft PR** を手動実行すると、IssueをOpenC
 
 ## 独立検証
 
-Node.js 26.12.0 / pnpm 12.14.0 / OpenCode 1.19.3を固定しています。候補が改変したnode_modulesは検証へ引き継ぎません。候補のmanifest / lockfileから、別の依存準備コンテナで `pnpm install --frozen-lockfile --ignore-scripts` を実行します。baseイメージの依存を候補の検証に流用しません。依存準備と独立検証はAI実装とは別jobで実行し、保存した同一候補を入力にします。
+Node.js 26.12.0 / pnpm 12.14.0 / OpenCode 1.19.3を固定しています。候補が改変したnode_modulesは検証へ引き継ぎません。候補のmanifest / lockfileから、別の依存準備コンテナで `pnpm with current install --frozen-lockfile --ignore-scripts --ignore-pnpmfile` を実行します。baseイメージの依存を候補の検証に流用しません。依存準備と独立検証はAI実装とは別jobで実行し、保存した同一候補を入力にします。
 
 AIは設定済みのHTTPS proxyを介して公開npm registryだけへアクセスでき、pnpmで依存・lockfileを更新できます。依存準備はAPI中継にも接続しない別internal networkを使います。資格情報を持たない固定宛先トンネルは `registry.npmjs.org:443` だけへ接続し、任意ホスト・ポートを拒否します。metadataやlockfileのURLを書き換えません。private registryや任意URL依存は対象外です。トンネルは最大16接続、各5分、実行全体512 MiBの通信で制限します。
 
-install時はlifecycleを無効にし、取得後に `pnpm rebuild --pending` をネットワークなしの隔離コンテナで実行します。pnpmのallowScripts設定は候補の設定に従い、スクリプトも未信頼として扱います。依存取得5分、script3分を上限とし、不整合・registry拒否・取得失敗・script失敗を固定ラベルで区別します。ホスト上でinstallを実行せず、候補設定から秘密情報・Docker socket・信頼した制御コードへは到達できません。
+install時はlifecycleを無効にし、取得後に `pnpm rebuild --pending` をネットワークなしの隔離コンテナで実行します。pnpmのallowBuilds設定は候補の設定に従い、スクリプトも未信頼として扱います。依存取得5分、script3分を上限とし、不整合・registry拒否・取得timeout・その他取得失敗・install設定失敗・script失敗を固定ラベルで区別します。取得の通信失敗だけ最大1回再試行し、内部のfetch retryは無効にします。不整合、設定不正、registry拒否、lifecycle失敗は再試行しません。ホスト上でinstallを実行せず、候補設定から秘密情報・Docker socket・信頼した制御コードへは到達できません。
 
 独立コンテナで `pnpm lint`、`pnpm typecheck`、`pnpm format:check`、`pnpm test`、`pnpm build` を実行します。CLI試験前にはbuildが必要です。AI / 検証コンテナはメモリ4 GiB、CPU 2、プロセス256、AI60分、各検証3分までです。implementジョブは90分、独立検証jobは30分です。
 
@@ -145,6 +145,39 @@ run-nameには入力Issue番号を表示します。コミット題名は対象I
 
 通常の非ゼロ終了・timeoutでもfinallyで工程診断とSummaryを保存し、`always()`でArtifactへ転送します。runner強制終了、キャンセル、ディスク障害では保存できない場合があります。診断が欠損した場合は成功と推定せず、Actions標準ログを確認してください。ローカル境界試験はモックのDocker/APIと実際の小さな子プロセスを使用し、実Actions・実DeepSeek・実pnpmネットワーク取得での確認とは区別します。
 
+### AI前の依存事前確認とstoreキャッシュ（#55）
+
+API中継の作成・起動とAI API呼び出しより前に、固定base（制御checkoutのHEAD）を別ディレクトリへexportします。継続sourceやAI候補からは事前確認の入力を作りません。
+
+1. `base_dependency_runtime`（30秒）でNode 26.12.0、実pnpm 12.14.0、manifestの `packageManager: pnpm@12.14.0` の一致を確認します。`pnpm with current` はmanifest / devEnginesによる別pnpmの自動取得を避けます。候補も `dependency_runtime` で同じ確認を行います。異なる版の採用は固定imageの変更とレビューが必要です。
+2. `dependency_probe`（90秒）は同じimage・ユーザー・internal network・固定registry中継を使い、空の一時storeへ `pnpm with current store add is-number@7.0.0` を実行します。コードを実行せず、warm時にもmetadata・tarballを最小取得して接続経路を確認します。
+3. `base_dependency_fetch`（各300秒、通信失敗だけ最大2試行）は候補と同じfrozen install経路でbase依存を取得します。成功したstoreだけを保存対象とし、lifecycleは実行しません。失敗ならAI前に停止し、工程診断と `AI_API_not_called`、再開案内を表示します。原因・設定を修正してworkflowを再実行してください。事前確認成功は候補の取得成功・要求充足を保証しません。
+
+候補では、入れ子も含むAI生成node_modules・store・その他のsnapshot対象外生成物を破棄し、保存storeの独立したファイルコピーへfrozen installします。候補のmanifest・lockfileに従い新規依存も取得します。`--ignore-pnpmfile` で取得中のJS hookを無効にし、manifest照合・store integrity・コピーによるimportを明示します。side-effects cacheを無効にします。追加runtime・任意URLの取得も固定registry宛先制限に従います。file / workspace / patch依存を扱うため、lockfileだけの `fetch → offline install` へ分割せず、pnpm標準installを継続採用します。hookが必須の候補はこの経路では未対応です。lifecycleはネットワーク・資格情報なしで実行し、storeも使い捨てのコピーだけを渡します。取得工程で照合したlockfileについてrebuild時の供給網metadata再照合を `offline=true / trust-lockfile=true` で抑止します。取得工程のfrozen照合・integrity検査は省略しません。候補store、node_modules、生成物をActions cacheへ保存しません。
+
+`actions/cache` のrestore/saveを完全SHA `55cc8345863c7cc4c66a329aec7e433d2d1c52a9`（v6.1.0）に固定しました。公式README / release / MIT LICENSEとNode24・runner 2.327.1以上の要件を2026-10-24に確認しました。既定の `ubuntu-latest` を使い、新しいSecrets・write権限・有料サービスを要求しません。cacheサービス利用不能、miss、破損、削除時も隔離取得へ戻ります。restore/save失敗は検証成功の根拠にも失敗理由にもせず、Actionsの警告を確認します。保存可否は実行のcache権限・branch scopeに従い、read-only時は復元のみになる場合があります。
+
+keyは専用namespace `latch-base-store-v1`、OS / architecture、Node / pnpm固定版、Node親imageのRepoDigest、信頼したDockerfile、固定base全tracked treeのdigestを含みます。全treeを含むのはworkspace・file依存・patch・各設定の取りこぼしを避けるためで、無関係なソース変更でもmissになります。完全一致だけを要求し、restore-keysとcross-OS archiveを使いません。pnpm v11 storeのprojectsリンク索引は共有せず、復元は常にファイルコピーして使用します。それ以外のsymlink / 特殊ファイル / 2 GiB超のstoreは破棄して再取得します。pnpmのintegrity照合を有効にして毎回installします。cacheをテスト証拠や安全性の保証として扱いません。保存元はAIにmountしない固定baseの取得結果だけです。
+
+新規固定費はありませんが、LLM・Actions時間とcacheストレージは既存の従量費です。GitHub公式仕様では未アクセス7日で削除、既定上限10 GB、上限超過時のevictionがあります。容量拡張は課金され得るため、この変更では設定しません。cache ActionにはArtifactのような独自retention-daysを指定せず、GitHubの保持規則に従います。秘密情報をcacheに置かず、リポジトリのcache閲覧範囲を前提とします。
+
+工程JSON / Summaryにはinstall時間、試行番号、cache状態（miss / copy / rejected / retry_empty）、pnpmのdownloaded / reused / added件数を保存します。取得できないカウンターはnullで、0へ補完しません。件数は取得バイト数や課金額ではありません。生ログやパッケージ名・URLは公開しません。cold / warmで同じ候補の検証を比較し、cache利用可否でテスト結果が変わらないことを確認します。実Actionsサービスでのhit / 保存 / eviction、実API費用、元の実行 #12のtimeout原因の確定は別の実環境確認です。
+
+公式参照: [pnpm with](https://pnpm.io/cli/with)、[pnpm install](https://pnpm.io/cli/install)、[pnpm store](https://pnpm.io/cli/store)、[cache v6.1.0](https://github.com/actions/cache/tree/v6.1.0)、[GitHubの依存キャッシュ](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)。
+
+#### ローカルの再現試験
+
+`python3 -B .github/automation/dependency_smoke.py` を通常CIへ追加しました。2026-10-24の管理環境内Docker試験では、同じmanifest / lockfileと同じパッケージAPIのチェックで次を観測しました。時間はコンテナ起動を含む一回の値で、速度保証ではありません。
+
+| 条件               | install時間 | downloaded | reused | 検証結果 |
+| ------------------ | ----------: | ---------: | -----: | -------- |
+| cold               |    4,982 ms |          1 |      0 | passed   |
+| warm（独立コピー） |    4,644 ms |          0 |      1 | passed   |
+
+この管理環境では外向き通信にセッションproxyが必要なため、ローカル試験だけ固定registry中継の上流へ接続するアダプターと公開CA mountを加えました。宛先制限・TLS検証・取得/lifecycle分離は維持し、アダプターは本番コードへ追加していません。固定base一式の事前取得も実コンテナで成功しました。取得timeoutとAPI前停止の分岐はPythonのDocker/APIモック試験で確認しており、実DeepSeek・実Actions cacheでの証拠ではありません。
+
+同じ実コンテナ試験で、破損したstore索引からの再取得、変更manifest / 再生成lockfileによる新規依存追加、lockfile不整合の拒否、offline rebuildのpostinstall失敗分類も成功しました。`.pnpmfile.cjs` が実行されれば失敗するfixtureを使い、取得中のhook無効化を確認しています。
+
 ## 保存候補の検証だけを再実行する（#56）
 
 通常の経路は `prepare → implement（AI・候補保存）→ validate/verify（依存準備・独立検証）→ validate/publish` です。`validate-candidate.yml` を通常実行と手動再開で共用します。呼出元はmainのworkflow、制御コード・Dockerfile・ポリシーは生成時の固定baseから取得します。候補内のworkflowを実行したり、最新mainへ自動的に載せ替えたりしません。verifyはcontents / actions readだけ、publishだけがcontents / pull-requests writeを持ちます。Secretsの包括継承はせず、検証経路にはDeepSeekキーを渡しません。
@@ -167,7 +200,7 @@ run-nameには入力Issue番号を表示します。コミット題名は対象I
 
 復元前にGitHub APIで対象リポジトリID / 名前、main由来のworkflow_dispatch、元workflowのパス、run / attempt、base SHA、現在の実行者・再実行者の権限を照合します。同一runの一意な名前のArtifactだけを選び、APIの期限・サイズ・SHA-256とダウンロードZIPを照合します。ZIPはサイズを制限し、固定名のJSONだけを読み、任意パスへ展開しません。保存manifest側の24時間期限も確認するため、コピーや再uploadで期限は延長できません。ArtifactやIssue文字列を任意コード実行の許可として扱いません。
 
-復元した要求・差分を同じ安全検査へ通し、固定sourceのGit exportへ適用してsnapshot digestを照合します。不一致・秘密情報・パス異常・元ポリシーの不一致ならコンテナ起動前に停止します。検証コンテナ停止後にもソースhashを照合し、変更されていれば結果を公開しません。依存準備・各チェックの制限と隔離境界は従来どおりです。既定test内でbuildが成功したときは `build=not_run / covered_by_test` として重複実行を避けます。
+復元した要求・差分を同じ安全検査へ通し、固定sourceのGit exportへ適用してsnapshot digestを照合します。不一致・秘密情報・パス異常・元ポリシーの不一致ならコンテナ起動前に停止します。検証コンテナ停止後にもソースhashを照合し、変更されていれば結果を公開しません。検証jobも元の固定baseのkeyでstoreを復元し、候補ごとの独立コピーでfrozen installを行います。検証jobから候補storeをcacheへ保存しません。cache miss・破損時は空のstoreから取得します。依存準備・各チェックの制限と隔離境界は従来どおりです。既定test内でbuildが成功したときは `build=not_run / covered_by_test` として重複実行を避けます。
 
 結果はproposal schema v3で候補manifest、request / source / snapshot / policy digest、検証run / attempt、検証image IDと結合します。publishは元Artifactを再取得し、期限・内容・要求と結果の結合を再検査します。v3を従来v2として解釈しません。#56以前の実行には候補bundleがないため、新しい検証専用経路では再開できません。
 

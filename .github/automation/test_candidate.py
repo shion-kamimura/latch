@@ -75,6 +75,17 @@ class CandidateTests(unittest.TestCase):
                 candidate.validate_bundle(bundle, 'owner/repo', '123', '1', 'a' * 40,
                                           now=bundle['manifest']['expires_at'])
 
+    def test_dependency_preparation_classifications_remain_publishable_partial_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = bundle_for(Path(directory))
+            for reason in ['dependency_fetch_timeout', 'package_manager_mismatch', 'runtime_unavailable',
+                           'dependency_install_failed', 'dependency_environment_unavailable']:
+                value = proposal_for(bundle)
+                value['checks']['dependencies'] = run.check_result('environment_unavailable', reason=reason)
+                for check in run.CHECKS:
+                    value['checks'][check] = run.check_result(reason='dependencies_unavailable')
+                self.assertEqual(publish.validate(value), bundle['candidate']['files'])
+
     def test_materialization_preserves_binary_modes_links_deletions_and_refuses_link_parent(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -106,7 +117,7 @@ class CandidateTests(unittest.TestCase):
                 output = root / ('failure' if dependency_failure else 'retry')
                 env = {'BUNDLE_PATH': str(bundle_path), 'CANDIDATE_PATH': str(root), 'OUTPUT_PATH': str(output),
                        'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_RUN_ID': '456', 'GITHUB_RUN_ATTEMPT': '1',
-                       'ORIGIN_RUN_ID': '123', 'ORIGIN_ATTEMPT': '1'}
+                       'ORIGIN_RUN_ID': '123', 'ORIGIN_ATTEMPT': '1', 'DEPENDENCY_STORE_PATH': str(root / 'fixed-base-store')}
                 def command(args, **kwargs):
                     if args[:3] == ['git', 'rev-parse', 'HEAD']:
                         return 'a' * 40
@@ -117,7 +128,7 @@ class CandidateTests(unittest.TestCase):
                         patch.object(run, 'execute'), patch.object(run.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
                         patch.object(run, 'stop_container'), patch.object(run, 'run_agent') as agent, \
                         patch.object(run, 'report_gateway') as gateway, patch.object(run, 'prepare_dependencies',
-                            side_effect=ValueError('stage=dependencies error=dependency_fetch_failed') if dependency_failure else None), \
+                            side_effect=ValueError('stage=dependencies error=dependency_fetch_failed') if dependency_failure else None) as preparation, \
                         patch.object(run, 'independent_check', return_value=run.check_result('passed', 0, 'exit_code')) as check:
                     if dependency_failure:
                         with self.assertRaisesRegex(ValueError, 'partial_results'):
@@ -126,6 +137,7 @@ class CandidateTests(unittest.TestCase):
                         verify.main()
                     agent.assert_not_called()
                     gateway.assert_not_called()
+                    self.assertEqual(preparation.call_args.kwargs['store'], root / 'fixed-base-store')
                     # build is already covered by the fixed test script on success.
                     self.assertEqual(check.call_count, 0 if dependency_failure else 4)
                 proposal = json.loads((output / 'proposal.json').read_text())
@@ -301,7 +313,7 @@ class ImplementationSeparationTests(unittest.TestCase):
                 def command(args, **unused):
                     return archive.getvalue() if args[0] == 'git' else IMAGE
                 with patch.dict(os.environ, env), patch.object(subprocess, 'check_output', side_effect=command), \
-                        patch.object(run, 'execute'), patch.object(run, 'verify_startup'), \
+                        patch.object(run, 'execute'), patch.object(run, 'verify_startup'), patch.object(run, 'preflight_dependencies'), \
                         patch.object(run.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
                         patch.object(run, 'run_agent', side_effect=agent), patch.object(run, 'stop_container'), \
                         patch.object(run, 'report_gateway'), patch.object(run, 'prepare_dependencies') as dependencies, \

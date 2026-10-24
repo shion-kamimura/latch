@@ -22,6 +22,9 @@ import uuid
 from gateway import MAX_BYTES, MAX_CONTEXT, MAX_OUTPUT, MAX_REQUESTS, MAX_RESERVED, cost_config, model_config
 from policy import AUTOMATION_CHECK, PolicyError, allowed_change, report, validate_files, validate_pr_title, validate_request, validate_link, MAX_FILE_BYTES, MAX_PROPOSAL_BYTES, maintenance_path
 
+NODE_VERSION = 'v26.12.0'
+PNPM_VERSION = '12.14.0'
+PNPM = ['pnpm', 'with', 'current']
 AGENT_TIMEOUT = 3600
 HEARTBEAT_SECONDS = 30
 
@@ -415,7 +418,8 @@ def failure_reason(error):
     match = re.match(r'stage=[a-z_]+ error=([a-z_]+)', message)
     if match and match[1] in {'timeout', 'api_error', 'startup_error', 'abnormal_exit', 'agent_error',
             'configuration_error', 'model_configuration_error', 'provider_initialization_error', 'partial_results',
-            'dependency_mismatch', 'registry_denied', 'dependency_fetch_failed', 'install_script_failed'}:
+            'dependency_mismatch', 'registry_denied', 'dependency_fetch_failed', 'dependency_fetch_timeout',
+            'package_manager_mismatch', 'runtime_unavailable', 'dependency_install_failed', 'dependency_environment_unavailable', 'install_script_failed'}:
         return match[1]
     if message.startswith('Independent check failed:'):
         return 'validation_failed'
@@ -511,7 +515,8 @@ def check_result(status='not_run', exit_code=None, reason='not_started'):
 @contextmanager
 def stage_diagnostic(log_path, stage, limit):
     """Publish only host-owned metadata; never relay untrusted command output."""
-    if stage not in {'dependency_fetch', 'dependency_lifecycle', 'opencode_run', 'check', *CHECKS, AUTOMATION_CHECK}:
+    if stage not in {'dependency_runtime', 'dependency_probe', 'base_dependency_fetch', 'base_dependency_lifecycle',
+                     'base_dependency_runtime', 'dependency_fetch', 'dependency_lifecycle', 'opencode_run', 'check', *CHECKS, AUTOMATION_CHECK}:
         raise ValueError('invalid_diagnostic_stage')
     started = time.monotonic()
     record = {'stage': stage, 'status': 'running', 'reason': 'in_progress',
@@ -553,9 +558,11 @@ def diagnostic_command(command, log_path, stage, limit):
             result = subprocess.run(command, stdout=log, stderr=log, timeout=limit,
                                     preexec_fn=limit_log_output)
         record.update(status='passed' if result.returncode == 0 else 'failed',
-                      reason=(dependency_failure(log_path) if stage == 'dependency_fetch' else 'install_script_failed')
-                      if result.returncode and stage in {'dependency_fetch', 'dependency_lifecycle'} else 'exit_code',
+                      reason=(dependency_failure(log_path) if stage.endswith('_fetch') or stage == 'dependency_probe' else 'install_script_failed')
+                      if result.returncode and (stage.endswith(('_fetch', '_lifecycle')) or stage == 'dependency_probe') else 'exit_code',
                       exit_code=result.returncode)
+        if stage.endswith('_runtime') and result.returncode:
+            record['reason'] = 'package_manager_mismatch' if result.returncode == 42 else 'runtime_unavailable'
         return result
 
 
@@ -589,18 +596,19 @@ def save_execution(output, temporary, request, checks, generated=None, before=No
              f'Candidate diff SHA-256: `{diff_digest or "unavailable"}`',
              f'Run: {run_id}; attempt: {attempt}; artifact: `{artifact}` (14 days)',
              'Process exit and check success do not establish requirement fulfillment (unverified).',
-             '', '| Stage | Status | Reason | Exit | Elapsed ms | Limit seconds |',
-             '| --- | --- | --- | --- | --- | --- |']
+             '', '| Stage | Status | Reason | Exit | Elapsed ms | Limit seconds | Cache | Downloaded | Reused |',
+             '| --- | --- | --- | --- | --- | --- | --- | --- | --- |']
     for record in records:
         lines.append('| ' + ' | '.join(str(record[key]) for key in
-                     ['stage', 'status', 'reason', 'exit_code', 'elapsed_ms', 'limit_seconds']) + ' |')
+                     ['stage', 'status', 'reason', 'exit_code', 'elapsed_ms', 'limit_seconds']) + ' | ' +
+                     ' | '.join(str(record.get(key, '—')) for key in ['cache', 'downloaded', 'reused']) + ' |')
     recorded = {record['stage'] for record in records}
     for stage in ['dependency_fetch', 'dependency_lifecycle']:
         if stage not in recorded:
-            lines.append(f'| {stage} | not_run | preceding_stage_incomplete_or_no_changes | — | — | — |')
+            lines.append(f'| {stage} | not_run | preceding_stage_incomplete_or_no_changes | — | — | — | — | — | — |')
     for name, result in checks.items():
         if result['status'] == 'not_run':
-            lines.append(f'| {name} | not_run | {result["reason"]} | — | — | — |')
+            lines.append(f'| {name} | not_run | {result["reason"]} | — | — | — | — | — | — |')
     incomplete = [r['stage'] for r in records if r['status'] != 'passed']
     lines += ['', 'Next: inspect/retry ' + (', '.join(incomplete) if incomplete else 'unexecuted checks, or review evidence and requirements') + '.',
               'Only fixed-schema metadata is published; raw stdout/stderr is temporary and excluded.']
@@ -641,53 +649,243 @@ def save_proposal(output, before, work, generated, files, checks, implementation
     return value
 
 
+def dependency_proxy_env(registry):
+    proxy = 'http://' + registry + ':8081'
+    return [value for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']
+            for value in ['-e', key + '=' + proxy]] + ['-e', 'NO_PROXY=', '-e', 'no_proxy=']
+
+
+def dependency_options(registry):
+    # CLI settings override project config; the internal network enforces the destination.
+    return ['--registry=https://registry.npmjs.org', '--https-proxy=http://' + registry + ':8081',
+            '--http-proxy=http://' + registry + ':8081', '--no-proxy=',
+            '--ignore-pnpmfile', '--config.verify-store-integrity=true',
+            '--config.package-import-method=copy', '--config.side-effects-cache=false',
+            '--config.fetch-retries=0', '--config.fetch-timeout=30000', '--config.network-concurrency=4', '--reporter=ndjson']
+
+
 def dependency_command(network, common, registry, name):
     return ['docker', 'run', '--name', name, '--network', network, *common,
-            'latch-agent', 'pnpm', 'install', '--frozen-lockfile', '--ignore-scripts',
-            '--registry=https://registry.npmjs.org', '--https-proxy=http://' + registry + ':8081',
-            '--store-dir=/work/node_modules/.store', '--reporter=ndjson']
+            *dependency_proxy_env(registry), 'latch-agent', *PNPM, 'install', '--frozen-lockfile', '--ignore-scripts',
+            '--config.ignore-manifest-check=false', '--config.lockfile=true', '--lockfile-dir=/work',
+            '--store-dir=/pnpm/store',
+            '--config.virtual-store-dir=/work/node_modules/.pnpm', '--config.modules-dir=node_modules',
+            *dependency_options(registry)]
 
 
 def dependency_failure(log_path):
     text = Path(log_path).read_text(errors='replace')[-16000:]
-    if 'ERR_PNPM_OUTDATED_LOCKFILE' in text or 'ERR_PNPM_LOCKFILE' in text:
+    if 'ERR_PNPM_OUTDATED_LOCKFILE' in text or 'ERR_PNPM_LOCKFILE' in text or 'ERR_PNPM_NO_LOCKFILE' in text:
         return 'dependency_mismatch'
-    if 'registry_denied' in text or '403' in text:
+    if 'registry_denied' in text or re.search(r'\b403\b', text):
         return 'registry_denied'
-    return 'dependency_fetch_failed'
+    if 'no space left on device' in text.lower() or 'ENOSPC' in text:
+        return 'dependency_environment_unavailable'
+    if any(code in text for code in ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ERR_SOCKET_TIMEOUT', 'operation timed out', 'Request timed out']):
+        return 'dependency_fetch_timeout'
+    if any(code in text for code in ['ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND',
+                                      'ERR_PNPM_FETCH', 'dns error', 'error sending request', 'ERR_PNPM_META_FETCH_FAIL']) or re.search(r'\b50[234]\b', text):
+        return 'dependency_fetch_failed'
+    return 'dependency_install_failed'
 
 
-def prepare_dependencies(work, common, registry, network, name, temporary):
-    # Discard agent-modified modules; resolve candidate manifest+lock afresh.
-    dependencies = work / 'node_modules'
-    if dependencies.is_symlink():
-        dependencies.unlink()
-    elif dependencies.exists():
-        shutil.rmtree(dependencies)
-    log_path = Path(temporary) / 'dependency_fetch.log'
-    result = diagnostic_command(dependency_command(network, common, registry, name),
-                                log_path, 'dependency_fetch', 300)
-    if result.returncode:
-        raise ValueError('stage=dependencies error=' + dependency_failure(log_path))
-    # Lifecycle scripts are untrusted: run them with no network, secrets or host mounts.
-    log_path = Path(temporary) / 'dependency_lifecycle.log'
-    result = diagnostic_command(['docker', 'run', '--name', name + '-scripts', '--network', 'none',
-                                 *common, 'latch-agent', 'pnpm', 'rebuild', '--pending',
-                                 '--store-dir=/work/node_modules/.store'],
-                                log_path, 'dependency_lifecycle', 180)
-    if result.returncode:
-        raise ValueError('stage=dependencies error=install_script_failed')
+def clone_store(source, destination):
+    """Copy only regular data, never hardlink a consumer to the saved base store."""
+    destination = Path(destination)
+    destination.mkdir(parents=True)
+    if source and Path(source).is_symlink():
+        raise ValueError('invalid_store_entry')
+    if not source or not Path(source).exists():
+        return False
+    source = Path(source)
+    def transient(directory, names):
+        # pnpm's project index is a symlink back to node_modules, not cached content.
+        return {'projects'} if Path(directory).relative_to(source) == Path('v11') else set()
+    total = 0
+    for directory, dirs, files in os.walk(source, followlinks=False):
+        ignored = transient(directory, dirs + files)
+        dirs[:] = [name for name in dirs if name not in ignored]
+        for name in dirs + [name for name in files if name not in ignored]:
+            info = (Path(directory) / name).lstat()
+            if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                raise ValueError('invalid_store_entry')
+            total += info.st_size
+            if total > MAX_SNAPSHOT_BYTES:
+                raise ValueError('store_too_large')
+    if source.is_symlink() or not source.is_dir():
+        raise ValueError('invalid_store_entry')
+    shutil.copytree(source, destination, dirs_exist_ok=True, copy_function=shutil.copy2, ignore=transient)
+    return True
 
 
-def verify_checks(work, common, registry, dependency_network, name, temporary, files, containers, control):
+def dependency_metrics(log_path):
+    # pnpm 12 emits package progress events, not just aggregate counters.
+    counters = {key: None for key in ['downloaded', 'reused', 'added']}
+    packages = {key: set() for key in counters}
+    statuses = {'fetched': 'downloaded', 'found_in_store': 'reused', 'imported': 'added'}
+    with Path(log_path).open(errors='replace') as log:
+        for line in log:
+            if len(line) > 100_000:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            for key in counters:
+                value = event.get(key)
+                if type(value) is int and 0 <= value <= 1_000_000:
+                    counters[key] = max(counters[key] or 0, value)
+            if event.get('name') == 'pnpm:progress':
+                for key in counters:
+                    if counters[key] is None:
+                        counters[key] = 0
+                status = event.get('status')
+                key = statuses.get(status) if isinstance(status, str) else None
+                package = event.get('packageId')
+                if key and isinstance(package, str) and len(package) <= 4096:
+                    packages[key].add(package)
+    for key in counters:
+        if packages[key]:
+            counters[key] = max(counters[key] or 0, len(packages[key]))
+    return counters
+
+
+def verify_dependency_runtime(common, name, temporary, prefix=''):
+    # Run the installed binary from /tmp so a manifest cannot auto-download another pnpm.
+    script = ("const fs=require('node:fs'),cp=require('node:child_process');"
+              "const m=JSON.parse(fs.readFileSync('/work/package.json','utf8'));"
+              f"if(m.packageManager!=='pnpm@{PNPM_VERSION}') process.exit(42);"
+              f"if(process.version!=='{NODE_VERSION}') process.exit(43);"
+              "const v=cp.execFileSync('pnpm',['with','current','--version'],{cwd:'/tmp',encoding:'utf8'}).trim();"
+              f"if(v!=='{PNPM_VERSION}') process.exit(43);")
+    log = Path(temporary) / (prefix + 'dependency_runtime.log')
+    try:
+        result = diagnostic_command(['docker', 'run', '--name', name + '-runtime', '--network', 'none',
+                                     *common, 'latch-agent', 'node', '-e', script],
+                                    log, prefix + 'dependency_runtime', 30)
+        if result.returncode:
+            reason = 'package_manager_mismatch' if result.returncode == 42 else 'runtime_unavailable'
+            raise ValueError('stage=dependencies error=' + reason)
+    finally:
+        stop_container(name + '-runtime')
+
+
+def prepare_dependencies(work, common, registry, network, name, temporary, store=None, prefix='',
+                         lifecycle=True, retries=1, runtime=True):
+    if runtime:
+        verify_dependency_runtime(common, name, temporary, prefix)
+    # Discard agent-modified modules AND store. No agent store is ever reused or saved.
+    for directory, dirs, files in os.walk(work, followlinks=False):
+        for entry in list(dirs) + files:
+            if entry in IGNORED or entry.endswith('.tsbuildinfo'):
+                path = Path(directory) / entry
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                else:
+                    shutil.rmtree(path)
+                if entry in dirs:
+                    dirs.remove(entry)
+    scratch = Path(temporary) / (name + '-store')
+    cache_state = 'miss'
+    try:
+        if clone_store(store, scratch):
+            cache_state = 'copy'
+    except (ValueError, OSError):
+        shutil.rmtree(scratch, ignore_errors=True)
+        scratch.mkdir()
+        cache_state = 'rejected'
+    install_common = [*common, '--mount', f'type=bind,src={scratch},dst=/pnpm/store']
+    for attempt in range(retries + 1):
+        log_path = Path(temporary) / (prefix + 'dependency_fetch' + (f'_retry{attempt}' if attempt else '') + '.log')
+        retry = False
+        try:
+            result = diagnostic_command(dependency_command(network, install_common, registry, name),
+                                        log_path, prefix + 'dependency_fetch', 300)
+            reason = dependency_failure(log_path) if result.returncode else None
+            if reason:
+                retry = reason in {'dependency_fetch_failed', 'dependency_fetch_timeout'}
+                if not retry or attempt == retries:
+                    raise ValueError('stage=dependencies error=' + reason)
+        except subprocess.TimeoutExpired:
+            retry = True
+            if attempt == retries:
+                raise ValueError('stage=dependencies error=dependency_fetch_timeout') from None
+        finally:
+            # A killed Docker CLI leaves the container running. Stop before retry/copy.
+            stop_container(name)
+            record_path = log_path.with_suffix('.safe.json')
+            record = json.loads(record_path.read_text())
+            record.update(attempt=attempt + 1, cache=cache_state, **dependency_metrics(log_path))
+            record_path.write_text(json.dumps(record) + '\n')
+        if not retry:
+            break
+        # A transport failure or corrupt cache is retried once from an empty store.
+        shutil.rmtree(scratch)
+        scratch.mkdir()
+        cache_state = 'retry_empty'
+    if not lifecycle:
+        return scratch
+    # Lifecycle sees only a disposable copy, with no network or credentials.
+    log_path = Path(temporary) / (prefix + 'dependency_lifecycle.log')
+    try:
+        result = diagnostic_command(['docker', 'run', '--name', name + '-scripts', '--network', 'none',
+                                     *install_common, 'latch-agent', *PNPM, 'rebuild', '--pending',
+                                     '--store-dir=/pnpm/store', '--ignore-pnpmfile', '--config.side-effects-cache=false',
+                                     '--config.offline=true', '--config.trust-lockfile=true'],
+                                    log_path, prefix + 'dependency_lifecycle', 180)
+        if result.returncode:
+            raise ValueError('stage=dependencies error=install_script_failed')
+    finally:
+        stop_container(name + '-scripts')
+    return scratch
+
+
+def preflight_dependencies(temporary, common, registry, network, name, store=None):
+    """Always export fixed control HEAD, even when resuming an untrusted source."""
+    base = Path(temporary) / 'base-work'
+    base.mkdir()
+    archive = subprocess.check_output(['git', 'archive', 'HEAD'])
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        tar.extractall(base, filter='data')
+    base_common = [arg.replace(f'src={Path(temporary) / "work"},dst=/work', f'src={base},dst=/work')
+                   for arg in common]
+    verify_dependency_runtime(base_common, name + '-base', temporary, 'base_')
+    # Empty tmpfs store forces a small metadata + tarball request even on a warm hit.
+    probe = ['docker', 'run', '--name', name + '-probe', '--network', network, *base_common,
+             '-w', '/tmp', *dependency_proxy_env(registry), 'latch-agent', *PNPM, 'store', 'add', 'is-number@7.0.0',
+             '--store-dir=/tmp/probe-store', '--ignore-scripts', *dependency_options(registry)]
+    try:
+        result = diagnostic_command(probe, Path(temporary) / 'dependency_probe.log', 'dependency_probe', 90)
+        if result.returncode:
+            raise ValueError('stage=dependencies error=' + dependency_failure(Path(temporary) / 'dependency_probe.log'))
+    finally:
+        stop_container(name + '-probe')
+    # Same install route as candidate; never cache lifecycle effects.
+    return prepare_dependencies(base, base_common, registry, network, name + '-base', temporary,
+                                store=store, prefix='base_', lifecycle=False, runtime=False)
+
+
+def dependency_cache_key():
+    # Entire tracked tree covers workspace/file/patch dependencies and all config.
+    tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}']).strip().decode()
+    image = subprocess.check_output(['docker', 'image', 'inspect', 'node:26.12.0-bookworm-slim',
+                                    '--format', '{{index .RepoDigests 0}}']).strip().decode()
+    recipe = Path('.github/automation/Dockerfile').read_bytes()
+    digest = hashlib.sha256(tree.encode() + image.encode() + recipe).hexdigest()
+    return f'latch-base-store-v1-{os.uname().sysname}-{os.uname().machine}-node{NODE_VERSION}-pnpm{PNPM_VERSION}-{digest}'
+
+
+def verify_checks(work, common, registry, dependency_network, name, temporary, files, containers, control, base_store=None):
     checks = {check: check_result() for check in [*CHECKS, 'dependencies']}
     dependency_name = name + '-install'
-    containers.extend([dependency_name, dependency_name + '-scripts'])
+    containers.extend([dependency_name, dependency_name + '-scripts', dependency_name + '-runtime'])
     if not files:
         checks = {check: check_result(reason='no_changes') for check in checks}
     if files:
         try:
-            prepare_dependencies(work, common, registry, dependency_network, dependency_name, temporary)
+            prepare_dependencies(work, common, registry, dependency_network, dependency_name, temporary, store=base_store)
             checks['dependencies'] = check_result('passed', 0, 'exit_code')
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             checks['dependencies'] = check_result('environment_unavailable', reason=failure_reason(error))
@@ -712,7 +910,7 @@ def verify_checks(work, common, registry, dependency_network, name, temporary, f
                 containers.append(verifier)
                 checks[check] = independent_check(
                     ['docker', 'run', '--name', verifier, '--network', 'none', *common,
-                     'latch-agent', 'pnpm', check], Path(temporary) / (check.replace(':', '_') + '.log'), verifier)
+                     'latch-agent', *PNPM, check], Path(temporary) / (check.replace(':', '_') + '.log'), verifier)
                 print('stage=independent_check check=' + check + ' status=' + checks[check]['status'], flush=True)
         if any(maintenance_path(item['path']) for item in files):
             verifier = name + '-automation-check'
@@ -776,6 +974,36 @@ def main():
             execute(['docker', 'network', 'create', '--internal', network], stdout=subprocess.DEVNULL)
             # Pull the trusted gateway image before introducing secrets or generated code.
             execute(['docker', 'pull', 'python:3.12.12-slim-bookworm'], stdout=subprocess.DEVNULL)
+            execute(['docker', 'network', 'create', '--internal', dependency_network], stdout=subprocess.DEVNULL)
+            execute(['docker', 'create', *DOCKER_LOG_LIMITS, '--name', registry, '--network', 'bridge',
+                     '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
+                     '--user', '65534:65534', '--memory=128m', '--cpus=1', '--pids-limit=64',
+                     '--mount', f'type=bind,src={control / "registry.py"},dst=/registry.py,readonly',
+                     'python:3.12.12-slim-bookworm', 'python', '-B', '/registry.py'], stdout=subprocess.DEVNULL)
+            execute(['docker', 'network', 'connect', network, registry])
+            execute(['docker', 'network', 'connect', dependency_network, registry])
+            execute(['docker', 'start', registry], stdout=subprocess.DEVNULL)
+            cache = Path(os.environ['DEPENDENCY_STORE_PATH']) if os.environ.get('DEPENDENCY_STORE_PATH') else None
+            for suffix in ['-base-runtime', '-base', '-base-scripts', '-probe']:
+                containers.append(name + suffix)
+            try:
+                base_store = preflight_dependencies(temporary, common, registry, dependency_network, name, cache)
+            except (ValueError, OSError, subprocess.TimeoutExpired):
+                print('stage=dependency_preflight status=failed next=inspect_base_dependency_stages_then_rerun_workflow; AI_API_not_called', flush=True)
+                raise
+            if cache is not None:
+                try:
+                    if cache.is_symlink() or cache.is_file():
+                        cache.unlink()
+                    else:
+                        shutil.rmtree(cache, ignore_errors=True)
+                    clone_store(base_store, cache)
+                    if os.environ.get('GITHUB_OUTPUT'):
+                        with open(os.environ['GITHUB_OUTPUT'], 'a') as result:
+                            result.write('base_store_ready=true\n')
+                except (OSError, ValueError):
+                    print('stage=store_cache status=unavailable fallback=disposable_base_store', flush=True)
+            print('stage=dependency_preflight status=passed candidate_dependencies=unverified', flush=True)
             tokenizer_mount = []
             if os.environ.get('LATCH_TOKENIZER_DIRECTORY'):
                 tokenizer = Path(os.environ['LATCH_TOKENIZER_DIRECTORY']).resolve()
@@ -800,15 +1028,6 @@ def main():
                 time.sleep(1)
             else:
                 raise ValueError('stage=gateway_startup error=startup_error')
-            execute(['docker', 'network', 'create', '--internal', dependency_network], stdout=subprocess.DEVNULL)
-            execute(['docker', 'create', *DOCKER_LOG_LIMITS, '--name', registry, '--network', 'bridge',
-                     '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only',
-                     '--user', '65534:65534', '--memory=128m', '--cpus=1', '--pids-limit=64',
-                     '--mount', f'type=bind,src={control / "registry.py"},dst=/registry.py,readonly',
-                     'python:3.12.12-slim-bookworm', 'python', '-B', '/registry.py'], stdout=subprocess.DEVNULL)
-            execute(['docker', 'network', 'connect', network, registry])
-            execute(['docker', 'network', 'connect', dependency_network, registry])
-            execute(['docker', 'start', registry], stdout=subprocess.DEVNULL)
             agent = name + '-agent'
             containers.append(agent)
             prompt = agent_prompt(request)
@@ -856,7 +1075,7 @@ def main():
                 if implementation != 'completed':
                     raise ValueError('stage=proposal error=partial_results')
                 return
-            checks = verify_checks(work, common, registry, dependency_network, name, temporary, files, containers, control)
+            checks = verify_checks(work, common, registry, dependency_network, name, temporary, files, containers, control, base_store=base_store)
             save_proposal(output, before, work, generated, files, checks, implementation, pr_title)
             passed = all(item['status'] == 'passed' or item['reason'] == 'covered_by_test' for item in checks.values())
             outcome = 'proposal_ready' if passed and implementation == 'completed' and title_error is None else 'partial_proposal'
@@ -889,7 +1108,11 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        import sys
+        if sys.argv[1:] == ['--cache-key']:
+            print('key=' + dependency_cache_key())
+        else:
+            main()
     except subprocess.TimeoutExpired:
         raise SystemExit('stage=orchestration error=validation_timeout; inspect saved diagnostics and safe artifacts')
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
