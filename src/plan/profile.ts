@@ -3,6 +3,8 @@ import { isAbsolute, resolve } from 'node:path';
 import { RequirementPlanError } from './errors.js';
 import type {
   DataCategory,
+  DependencyPreparationMode,
+  ExecutionSettings,
   PlanningLimits,
   PlanningProfile,
   PlanningScope,
@@ -192,6 +194,148 @@ function readLimits(value: unknown): PlanningLimits {
   };
 }
 
+const DEFAULT_EXECUTION: ExecutionSettings = {
+  dependencies: { mode: 'runner', registry: null },
+  network: { allowedDestinations: [] },
+  limits: {
+    timeoutMs: 60_000,
+    maxMemoryMb: 512,
+    maxOutputBytes: 200_000,
+    maxGeneratedFiles: 20,
+    maxGeneratedFileBytes: 100_000,
+    maxRepairAttempts: 1,
+  },
+};
+
+export function defaultExecutionSettings(): ExecutionSettings {
+  return DEFAULT_EXECUTION;
+}
+
+function readRegistry(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    profileError(
+      '許可profileのexecution.dependencies.registryが空です。',
+      '依存取得を許可するHTTPSのregistry URLを指定してください。',
+    );
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    profileError(
+      '許可profileのexecution.dependencies.registryがURLとして解釈できません。',
+      '依存取得を許可するHTTPSのregistry URLを指定してください。',
+    );
+  }
+  if (
+    url.protocol !== 'https:' &&
+    !(url.protocol === 'http:' && loopbackHost(url.hostname))
+  ) {
+    profileError(
+      '許可profileのregistryはHTTPS（またはloopbackのHTTP）である必要があります。',
+      '平文の外部registryを指定しないでください。',
+    );
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    profileError(
+      '許可profileのregistryに認証情報・query・fragmentを含めないでください。',
+      'registryのbase URLだけを指定してください。',
+    );
+  }
+  return value.replace(/\/+$/u, '');
+}
+
+function readExecution(value: unknown): ExecutionSettings {
+  if (value === undefined) return DEFAULT_EXECUTION;
+  const execution = requireRecord(value, 'execution');
+  const dependencies = requireRecord(
+    execution.dependencies ?? {},
+    'execution.dependencies',
+  );
+  const modeValue = dependencies.mode ?? 'runner';
+  if (
+    modeValue !== 'runner' &&
+    modeValue !== 'offline' &&
+    modeValue !== 'registry'
+  ) {
+    profileError(
+      '許可profileのexecution.dependencies.modeが不正です。',
+      'modeには runner・offline・registry のいずれかを指定してください。',
+    );
+  }
+  const mode = modeValue as DependencyPreparationMode;
+  const registry = readRegistry(dependencies.registry);
+  if (mode === 'registry' && registry === null) {
+    profileError(
+      'registry方式の依存準備にはregistryの指定が必要です。',
+      'execution.dependencies.registryへ許可するHTTPS registryを指定してください。',
+    );
+  }
+
+  const network = requireRecord(execution.network ?? {}, 'execution.network');
+  const destinationsValue = network.allowedDestinations ?? [];
+  if (!Array.isArray(destinationsValue)) {
+    profileError(
+      '許可profileのexecution.network.allowedDestinationsが配列ではありません。',
+      '許可するテスト通信の宛先を配列で指定してください。',
+    );
+  }
+  const allowedDestinations = destinationsValue.map((entry) => {
+    if (typeof entry !== 'string' || entry.trim().length === 0) {
+      profileError(
+        '許可profileのexecution.network.allowedDestinationsに空の値があります。',
+        '宛先URLを文字列で指定してください。',
+      );
+    }
+    return entry.trim();
+  });
+
+  const limits = requireRecord(execution.limits ?? {}, 'execution.limits');
+  return {
+    dependencies: { mode, registry },
+    network: { allowedDestinations },
+    limits: {
+      timeoutMs: boundedInteger(
+        limits.timeoutMs,
+        DEFAULT_EXECUTION.limits.timeoutMs,
+        1_000,
+        300_000,
+      ),
+      maxMemoryMb: boundedInteger(
+        limits.maxMemoryMb,
+        DEFAULT_EXECUTION.limits.maxMemoryMb,
+        128,
+        4_096,
+      ),
+      maxOutputBytes: boundedInteger(
+        limits.maxOutputBytes,
+        DEFAULT_EXECUTION.limits.maxOutputBytes,
+        1_000,
+        1_000_000,
+      ),
+      maxGeneratedFiles: boundedInteger(
+        limits.maxGeneratedFiles,
+        DEFAULT_EXECUTION.limits.maxGeneratedFiles,
+        1,
+        30,
+      ),
+      maxGeneratedFileBytes: boundedInteger(
+        limits.maxGeneratedFileBytes,
+        DEFAULT_EXECUTION.limits.maxGeneratedFileBytes,
+        1_000,
+        200_000,
+      ),
+      maxRepairAttempts: boundedInteger(
+        limits.maxRepairAttempts,
+        DEFAULT_EXECUTION.limits.maxRepairAttempts,
+        0,
+        2,
+      ),
+    },
+  };
+}
+
 function readProfileFile(path: string, root: string): string {
   if (path.trim().length === 0) {
     profileError(
@@ -363,6 +507,7 @@ export function parsePlanningProfile(
       apiKeyEnv,
     },
     limits: readLimits(parsed.limits),
+    execution: readExecution(parsed.execution),
     path,
   };
 }

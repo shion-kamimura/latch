@@ -4,6 +4,9 @@ import { parsePlanArgs } from './plan/args.js';
 import { isRequirementPlanError } from './plan/errors.js';
 import { planRequirements } from './plan/plan.js';
 import { renderPlanJson, renderPlanText } from './plan/render.js';
+import { parseRunArgs } from './run/args.js';
+import { runVerification } from './run/run.js';
+import { renderRunJson, renderRunText } from './run/render.js';
 import { parseVerifyArgs } from './verify/args.js';
 import { isVerificationInputError } from './verify/errors.js';
 import { renderJson, renderText } from './verify/render.js';
@@ -85,6 +88,44 @@ async function planCommand(
   }
 }
 
+async function runCommand(
+  args: readonly string[],
+  io: { stdout: (text: string) => void; stderr: (text: string) => void },
+  environment: RunEnvironment,
+): Promise<number> {
+  const runArgs = args.slice(1);
+  if (runArgs.includes('--help') || runArgs.includes('-h')) {
+    io.stdout(getHelp());
+    return 0;
+  }
+
+  try {
+    const options = parseRunArgs(runArgs);
+    const report = await runVerification(options, {
+      cwd: environment.cwd ?? process.cwd(),
+      env: environment.env ?? process.env,
+      fetch: environment.fetch ?? fetch,
+    });
+    for (const warning of report.warnings) {
+      io.stderr(`latch: 警告: ${warning}\n`);
+    }
+    io.stdout(options.json ? renderRunJson(report) : renderRunText(report));
+    return 0;
+  } catch (error) {
+    if (isVerificationInputError(error)) {
+      io.stderr(`latch: ${error.message}\n`);
+      io.stderr(`次に: ${error.guidance}\n`);
+      return error.exitCode;
+    }
+    if (isRequirementPlanError(error)) {
+      io.stderr(`latch: ${error.message}\n`);
+      io.stderr(`次に: ${error.guidance}\n`);
+      return error.exitCode;
+    }
+    throw error;
+  }
+}
+
 export async function runCli(
   args: readonly string[],
   io: { stdout: (text: string) => void; stderr: (text: string) => void },
@@ -109,6 +150,10 @@ export async function runCli(
 
   if (args[0] === 'plan') {
     return planCommand(args, io, environment);
+  }
+
+  if (args[0] === 'run') {
+    return runCommand(args, io, environment);
   }
 
   io.stderr('Unsupported arguments. Run latch --help for usage.\n');

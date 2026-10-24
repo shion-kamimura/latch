@@ -19,6 +19,7 @@ describe('pre-PR verification spec', () => {
       'docs/pre-pr-verification.md',
       'docs/ai-development-validation.md',
       'docs/requirement-planning.md',
+      'docs/isolated-execution.md',
       'fixtures/order-api/README.md',
     ]) {
       for (const match of readRepoFile(document).matchAll(/\]\(([^)]+)\)/g)) {
@@ -54,6 +55,18 @@ describe('pre-PR verification spec', () => {
     expect(spec).toContain('未実装');
     expect(spec).toContain('## 実装済みの要件抽出と検証シナリオ計画（#24）');
     expect(readme).toContain('docs/requirement-planning.md');
+  });
+
+  test('documents the implemented isolated execution contract', () => {
+    const isolation = readRepoFile('docs/isolated-execution.md');
+    expect(spec).toContain(
+      '## 実装済みのテスト生成・隔離実行・証拠収集（#25）',
+    );
+    expect(isolation).toContain('## 隔離方式と安全境界');
+    expect(isolation).toContain('## 依存準備');
+    expect(isolation).toContain('生成テスト不正');
+    expect(isolation).toContain('テスト通信は既定で遮断');
+    expect(isolation).toContain('コンテナではありません');
   });
 
   test('documents permission reuse, data contract, and replan steps', () => {
