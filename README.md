@@ -89,7 +89,7 @@ Conventional Commitsは本来コミットメッセージの規約ですが、Lat
 
 IssueからOpenCode / DeepSeekで実装・検証し、Draft PRを作成する手動ワークフローは [IssueからDraft PRを作成する](docs/issue-draft-pr.md) を参照してください。
 
-自動化の責務、OpenCode・pnpm・Actionsへの委譲方針、費用・保存期間と後続改善 #54〜#57の順序は [標準機能への委譲設計](docs/automation-delegation.md) を参照してください。キャッシュや検証のみの再実行は後続実装です。
+自動化の責務、OpenCode・pnpm・Actionsへの委譲方針、費用・保存期間と後続改善 #54〜#57の順序は [標準機能への委譲設計](docs/automation-delegation.md) を参照してください。AI処理前の依存事前確認と固定baseのpnpm storeキャッシュは実装済みです。検証のみの再実行は後続実装です。
 
 自動化の分割実装・横断モック検証と未検証事項は [#32検証記録](docs/ai-development-validation.md) にまとめています。
 
