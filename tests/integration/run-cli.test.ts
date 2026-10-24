@@ -38,7 +38,7 @@ test('help lists the version option', () => {
 
 test('rejects unsupported arguments through stderr', () => {
   const io = { stdout: vi.fn(), stderr: vi.fn() };
-  expect(runCli(['verify'], io)).toBe(1);
+  expect(runCli(['--unknown'], io)).toBe(1);
   expect(io.stdout).not.toHaveBeenCalled();
   expect(io.stderr).toHaveBeenCalledWith(expect.stringContaining('--help'));
 });
