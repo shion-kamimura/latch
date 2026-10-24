@@ -2,7 +2,7 @@
 
 Latchは、AIが生成したコードをGitHub IssueやPRの要件と照合し、実際のテスト結果や証拠に基づいて検証するオープンソースのCLIツールです。
 
-現在は開発基盤とヘルプ表示のみを提供しています。コード検証機能はまだ実装していません。
+現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）を提供しています。要件抽出・テスト生成・隔離実行・レポートはまだ実装していません。
 
 ## 使用技術
 
@@ -78,6 +78,15 @@ node dist/cli.mjs --help
 
 引数なし、または `-h` でもヘルプを表示します。`-v` または `--version` で `package.json` に定義されたバージョンを表示します。未対応の引数は標準エラーに案内を出力し、終了コード1を返します。
 
+### 検証入力を解決する
+
+```sh
+node dist/cli.mjs verify --base origin/main --issue-file fixtures/order-api/issue.md
+node dist/cli.mjs verify --base origin/main --issue-file fixtures/order-api/issue.md --json
+```
+
+`verify` はリポジトリ境界を確定し、baseとのmerge-base、コミット済み・未コミットの差分、Issueファイルを1つのスナップショットへ解決します。未追跡ファイルは既定で除外し、`--include-untracked <path>` で明示した通常ソースだけを取り込みます。この段階では入力を収集するだけで、要件の検証は実行しません。入力の解決に成功しても終了コード0は「要件を満たした」ことを意味しません。詳細は [利用仕様](docs/pre-pr-verification.md) を参照してください。
+
 ## 開発フローとCI
 
 ### AIとIssueを設計する
@@ -107,9 +116,9 @@ Issueで `/opencode このIssueを実装してください` または `/oc こ�
 
 App・Secrets・有効化、起動権限、費用と停止方法、移行・切り戻しと未検証事項は [OpenCode運用手順](docs/opencode.md)、旧責務の置換は [委譲設計](docs/automation-delegation.md) を参照してください。旧Draft経路とその [検証記録](docs/ai-development-validation.md) は過去の構成です。
 
-PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。これは利用仕様であり、検証機能はまだ実装していません。利用者設定による送信許可の再利用、閉じたIssueの再現検証、隔離した依存準備と制御されたテスト通信も仕様として整理しています。実装は #23〜#26で進めます。
+PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。このうち #23 の入力解決だけを実装済みで、要件抽出・テスト生成・隔離実行・レポートは未実装です。利用者設定による送信許可の再利用、閉じたIssueの再現検証、隔離した依存準備と制御されたテスト通信も仕様として整理しています。
 
-`src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。
+`src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。`src/verify/` が入力解決を担当します。
 
 Issueテンプレートに目的・期待動作・スコープ・受け入れ条件を記載し、専用ブランチで開発してください。ライブラリ選定・テスト配置・内部構造の整理は理由と仮定を記して進めます。依頼外の互換性破壊や実環境の権限適用など、具体的な影響がある判断に確認を絞ります。AIエージェント向けのルールは [AGENTS.md](AGENTS.md) に定義しています。
 
