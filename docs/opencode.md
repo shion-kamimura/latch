@@ -42,17 +42,25 @@ implement jobだけに `id-token: write` を与え、OpenCodeのOIDC交換で公
 
 APIキーは存在確認ステップと公式Actionステップだけに渡し、依存準備ステップへ渡しません。ただし公式連携のプロセスと実装中のコマンドは同じrunner上で動き、キーとAppの書込能力に触れ得ます。旧gateway別コンテナによるキー隔離、read-only/non-rootコンテナ、通信宛先制限、CPU・メモリ・pids制限、候補と独立検証の分離は新構成にはありません。GitHub-hostedの実行ごとのVM分離を使い、self-hosted runnerには移しません。製品CLIの隔離実行要件をこの開発用構成へ読み替えません。
 
+権限のある利用者からの実装依頼は非対話で進めるため、OpenCodeの `permission: "allow"` を設定し、ツール操作の追加確認を待ちません。`external_directory` による `/tmp` など作業ディレクトリ外へのアクセスや、`doom_loop` の既定の確認待ちも対象です。ツール操作の自動許可は、マージ・レビュー承認・Secretsや実権限・課金設定の変更を依頼範囲へ追加するものではありません。起動前の利用者権限照合と実装指示は維持します。公式GitHub handlerがセッションに設定する `question: deny` も維持されます。
+
 公開セッション共有は `share: 'false'` とconfigの `share: disabled` で明示的に無効化します。採用Actionではshare入力は廃止済みですが、旧版の暗黙共有を避ける意図を保持します。共有を廃止したCLIでもActionsログとGitHubへの回答・コード公開は残ります。環境全体・キー・認証ヘッダーを出力せず、debug loggingを有効化しません。独自の生ログ・session・proposal artifactは保存しません。Actions標準ログとcacheの保存期間・削除、リポジトリの公開範囲はGitHub設定で管理し、Secretsのマスクがすべての漏えいを防ぐとは扱いません。漏えい時は実行停止、キー/token失効、ログ削除と監査を管理者が行います。
 
 ## 時間・費用・停止・再依頼
 
-実装jobは30分、権限照合は2分、concurrencyはリポジトリ全体で1実行です。`cancel-in-progress: false` で実行中の作業を新コメントによって中断しません。Actionsのconcurrencyは完全な待ち行列ではなく、待機中の古い実行が置換される場合があります。必要なら完了後に再依頼します。
+実装jobと権限照合jobにリポジトリ独自の短いtimeoutは設定しません。GitHub Actionsの既定のjob timeout（360分）とサービス側の実行上限は適用され、無期限の実行ではありません。concurrencyはリポジトリ全体で1実行です。`cancel-in-progress: false` で実行中の作業を新コメントによって中断しません。Actionsのconcurrencyは完全な待ち行列ではなく、待機中の古い実行が置換される場合があります。必要なら完了後に再依頼します。
 
 旧gatewayの既定5 USD予約上限・要求数・通信量・tokenizer計測・usage精算は廃止します。Actions timeoutや8192出力設定はAPI請求額の厳密な上限ではありません。複数API要求や終了時の未精算があるため、管理者はDeepSeek側の利用可能な残高・利用制限と監視、GitHub Actionsの予算・使用量を確認してから有効化します。利用可能なproviderの強制上限がない場合は厳密な上限なしと認識し、承認済みの少額予算内で監視する必要があります。
 
 停止はActions実行のCancel、緊急時はworkflow無効化または `OPENCODE_ENABLED=false`、必要に応じAppアクセス・DeepSeekキーの失効で行います。変数変更だけでは既に実行中のjobは止まらないためCancelも行います。停止しても送信済みAPI分の費用は取り消せません。
 
 失敗時はまずログを確認します。App/OIDC、モデル、認証、依存取得の不足は成功と扱わず、設定を管理者が直してから新しいコメントで再依頼します。既存PRがあればそのPRへ依頼します。CIだけの一時失敗はActionsの再実行で確認でき、有料AIの再起動を必須にしません。無人修復ループ、CIポーリング、CI結果の本文自動同期はありません。
+
+### 許可待ちによる停止と再依頼
+
+[実行40097478100のattempt 2](https://github.com/shion-kamimura/latch/actions/runs/40097478100/attempts/2) では、OpenCodeが `/tmp/correct.patch` と `/tmp/buggy.patch` を扱う際に `external_directory` の既定値 `ask` で止まり、約27分待機した後に旧30分timeoutでキャンセルされました。モデルの要求数や費用上限による停止ではありません。`permission: "allow"` はこの非対話の確認待ちを解消し、短いtimeoutの撤去だけで待ち続ける状態にしないための設定です。
+
+修正をmainへ反映後、新しい `/oc` または `/opencode` コメントで再依頼してください。古い実行の再実行は元のworkflow revisionを使うため、変更後の設定が使われるとは扱いません。既存PRがあればそのPRへ、まだPRがなければ元のIssueへ依頼します。
 
 ## 移行と切り戻し
 
