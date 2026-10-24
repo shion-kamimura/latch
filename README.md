@@ -2,7 +2,7 @@
 
 Latchは、AIが生成したコードをGitHub IssueやPRの要件と照合し、実際のテスト結果や証拠に基づいて検証するオープンソースのCLIツールです。
 
-現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）を提供しています。要件抽出・テスト生成・隔離実行・レポートはまだ実装していません。
+現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）、`latch plan` による要件抽出・既存Vitestテスト候補と不足シナリオの計画を提供しています。テスト生成・隔離実行・実行証拠の収集・レポートはまだ実装していません。
 
 ## 使用技術
 
@@ -87,6 +87,21 @@ node dist/cli.mjs verify --base origin/main --issue-file fixtures/order-api/issu
 
 `verify` はリポジトリ境界を確定し、baseとのmerge-base、コミット済み・未コミットの差分、Issueファイルを1つのスナップショットへ解決します。未追跡ファイルは既定で除外し、`--include-untracked <path>` で明示した通常ソースだけを取り込みます。この段階では入力を収集するだけで、要件の検証は実行しません。入力の解決に成功しても終了コード0は「要件を満たした」ことを意味しません。詳細は [利用仕様](docs/pre-pr-verification.md) を参照してください。
 
+### 要件を抽出して検証シナリオを計画する
+
+```sh
+node dist/cli.mjs plan --base origin/main --issue-file fixtures/order-api/issue.md \
+  --profile ~/.config/latch/llm-profile.json
+node dist/cli.mjs plan --base origin/main --issue-file fixtures/order-api/issue.md \
+  --profile ~/.config/latch/llm-profile.json --json
+```
+
+`plan` は `verify` と同じ入力スナップショットから、要件・条件、出典（Issue明示または差分推定）、既存のVitestテスト候補、不足シナリオを計画します。期待値を確定できない条件は「要件不明確」として残し、テスト候補と実行証拠を区別します。対象コード・設定・テストは実行せず、#22の評価専用テスト・正解データはLLM入力から除外します。
+
+送信にはワークツリー外の利用者管理の許可profileと、環境変数（既定は `LATCH_API_KEY`）のBYOKキーが必要です。許可profileはprovider・endpoint・project・データ区分を検証し、同一範囲は追加確認なしに再利用します。拒否・取り消し・範囲拡大・非対話の許可不足では送信せず終了コード2を返します。APIキーはprofile・ログ・レポートへ保存しません。認証失敗・タイムアウト・利用上限・不正なLLM応答は上限内で停止します。
+
+自動テストは固定したLLM応答を使い、実APIでの抽出品質は評価していません。テスト生成・実行・証拠収集は未実装です。利用方法・許可profile・データ契約・確認と再計画の手順は [要件抽出と検証シナリオ計画](docs/requirement-planning.md) を参照してください。
+
 ## 開発フローとCI
 
 ### AIとIssueを設計する
@@ -116,7 +131,7 @@ Issueで `/opencode このIssueを実装してください` または `/oc こ�
 
 App・Secrets・有効化、起動権限、費用と停止方法、移行・切り戻しと未検証事項は [OpenCode運用手順](docs/opencode.md)、旧責務の置換は [委譲設計](docs/automation-delegation.md) を参照してください。旧Draft経路とその [検証記録](docs/ai-development-validation.md) は過去の構成です。
 
-PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。このうち #23 の入力解決だけを実装済みで、要件抽出・テスト生成・隔離実行・レポートは未実装です。利用者設定による送信許可の再利用、閉じたIssueの再現検証、隔離した依存準備と制御されたテスト通信も仕様として整理しています。
+PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。このうち #23 の入力解決と #24 の要件抽出・検証計画を実装済みで、テスト生成・隔離実行・レポートは未実装です。利用者設定による送信許可の再利用、閉じたIssueの再現検証、隔離した依存準備と制御されたテスト通信も仕様として整理しています。実APIの品質評価は未実施です。
 
 `src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。`src/verify/` が入力解決を担当します。
 

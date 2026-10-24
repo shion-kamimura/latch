@@ -8,9 +8,9 @@ const packageJson = JSON.parse(
 
 test.each([{ args: [] }, { args: ['--help'] }, { args: ['-h'] }])(
   'routes $args to help output',
-  ({ args }) => {
+  async ({ args }) => {
     const io = { stdout: vi.fn(), stderr: vi.fn() };
-    expect(runCli(args, io)).toBe(0);
+    expect(await runCli(args, io)).toBe(0);
     expect(io.stdout).toHaveBeenCalledWith(
       expect.stringContaining('Usage: latch'),
     );
@@ -20,32 +20,32 @@ test.each([{ args: [] }, { args: ['--help'] }, { args: ['-h'] }])(
 
 test.each([{ args: ['--version'] }, { args: ['-v'] }])(
   'prints the package version for $args',
-  ({ args }) => {
+  async ({ args }) => {
     const io = { stdout: vi.fn(), stderr: vi.fn() };
-    expect(runCli(args, io)).toBe(0);
+    expect(await runCli(args, io)).toBe(0);
     expect(io.stdout).toHaveBeenCalledWith(`${packageJson.version}\n`);
     expect(io.stderr).not.toHaveBeenCalled();
   },
 );
 
-test('help lists the version option', () => {
+test('help lists the version option', async () => {
   const io = { stdout: vi.fn(), stderr: vi.fn() };
-  expect(runCli(['--help'], io)).toBe(0);
+  expect(await runCli(['--help'], io)).toBe(0);
   expect(io.stdout).toHaveBeenCalledWith(
     expect.stringContaining('-v, --version'),
   );
 });
 
-test('rejects unsupported arguments through stderr', () => {
+test('rejects unsupported arguments through stderr', async () => {
   const io = { stdout: vi.fn(), stderr: vi.fn() };
-  expect(runCli(['--unknown'], io)).toBe(1);
+  expect(await runCli(['--unknown'], io)).toBe(1);
   expect(io.stdout).not.toHaveBeenCalled();
   expect(io.stderr).toHaveBeenCalledWith(expect.stringContaining('--help'));
 });
 
-test('rejects version combined with other arguments', () => {
+test('rejects version combined with other arguments', async () => {
   const io = { stdout: vi.fn(), stderr: vi.fn() };
-  expect(runCli(['--version', '--help'], io)).toBe(1);
+  expect(await runCli(['--version', '--help'], io)).toBe(1);
   expect(io.stdout).not.toHaveBeenCalled();
   expect(io.stderr).toHaveBeenCalledWith(expect.stringContaining('--help'));
 });

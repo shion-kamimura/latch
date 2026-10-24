@@ -16,9 +16,9 @@ function repository(): TestRepository {
   return repo;
 }
 
-function run(args: string[], root: string) {
+async function run(args: string[], root: string) {
   const io = { stdout: vi.fn(), stderr: vi.fn() };
-  const status = runCli(args, io, { cwd: root });
+  const status = await runCli(args, io, { cwd: root });
   return { status, io };
 }
 
@@ -27,12 +27,12 @@ afterEach(() => {
 });
 
 describe('verify command input resolution', () => {
-  test('prints a JSON input snapshot without claiming requirement verification', () => {
+  test('prints a JSON input snapshot without claiming requirement verification', async () => {
     const repo = repository();
     repo.write('src/a.ts', 'export const value = 2;\n');
     repo.commit('change value');
 
-    const { status, io } = run(
+    const { status, io } = await run(
       ['verify', '--base', 'origin/main', '--issue-file', 'issue.md', '--json'],
       repo.root,
     );
@@ -52,13 +52,13 @@ describe('verify command input resolution', () => {
     expect(JSON.stringify(snapshot)).not.toContain('検証成功');
   });
 
-  test('prints a text report with warnings and no verification completion claim', () => {
+  test('prints a text report with warnings and no verification completion claim', async () => {
     const repo = repository();
     repo.write('src/a.ts', 'export const value = 2;\n');
     repo.commit('change value');
     repo.write('src/untracked.ts', 'export const untracked = true;\n');
 
-    const { status, io } = run(
+    const { status, io } = await run(
       ['verify', '--base', 'origin/main', '--issue-file', 'issue.md'],
       repo.root,
     );
@@ -75,12 +75,12 @@ describe('verify command input resolution', () => {
     );
   });
 
-  test('returns exit code 1 and guidance when the issue file is missing', () => {
+  test('returns exit code 1 and guidance when the issue file is missing', async () => {
     const repo = repository();
     repo.write('src/a.ts', 'export const value = 2;\n');
     repo.commit('change value');
 
-    const { status, io } = run(
+    const { status, io } = await run(
       ['verify', '--base', 'origin/main', '--issue-file', 'missing.md'],
       repo.root,
     );
@@ -92,11 +92,11 @@ describe('verify command input resolution', () => {
     );
   });
 
-  test('returns exit code 1 when the diff is empty', () => {
+  test('returns exit code 1 when the diff is empty', async () => {
     const repo = repository();
     repo.write('src/untracked.ts', 'export const untracked = true;\n');
 
-    const { status, io } = run(
+    const { status, io } = await run(
       ['verify', '--base', 'origin/main', '--issue-file', 'issue.md'],
       repo.root,
     );
@@ -105,12 +105,12 @@ describe('verify command input resolution', () => {
     expect(io.stderr).toHaveBeenCalledWith(expect.stringContaining('差分が空'));
   });
 
-  test('returns exit code 1 for an invalid base ref', () => {
+  test('returns exit code 1 for an invalid base ref', async () => {
     const repo = repository();
     repo.write('src/a.ts', 'export const value = 2;\n');
     repo.commit('change value');
 
-    const { status, io } = run(
+    const { status, io } = await run(
       ['verify', '--base', 'missing-ref', '--issue-file', 'issue.md'],
       repo.root,
     );
@@ -121,18 +121,18 @@ describe('verify command input resolution', () => {
     );
   });
 
-  test('returns exit code 2 for unsupported GitHub issue fetching', () => {
+  test('returns exit code 2 for unsupported GitHub issue fetching', async () => {
     const repo = repository();
-    const { status, io } = run(['verify', '--issue', '23'], repo.root);
+    const { status, io } = await run(['verify', '--issue', '23'], repo.root);
     expect(status).toBe(2);
     expect(io.stderr).toHaveBeenCalledWith(
       expect.stringContaining('--issue-file'),
     );
   });
 
-  test('shows help for verify --help', () => {
+  test('shows help for verify --help', async () => {
     const repo = repository();
-    const { status, io } = run(['verify', '--help'], repo.root);
+    const { status, io } = await run(['verify', '--help'], repo.root);
     expect(status).toBe(0);
     expect(io.stdout).toHaveBeenCalledWith(
       expect.stringContaining('--include-untracked'),

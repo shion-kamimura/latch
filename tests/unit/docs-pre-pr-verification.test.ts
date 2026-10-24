@@ -18,6 +18,7 @@ describe('pre-PR verification spec', () => {
       'AGENTS.md',
       'docs/pre-pr-verification.md',
       'docs/ai-development-validation.md',
+      'docs/requirement-planning.md',
       'fixtures/order-api/README.md',
     ]) {
       for (const match of readRepoFile(document).matchAll(/\]\(([^)]+)\)/g)) {
@@ -51,5 +52,15 @@ describe('pre-PR verification spec', () => {
 
   test('keeps implementation status honest', () => {
     expect(spec).toContain('未実装');
+    expect(spec).toContain('## 実装済みの要件抽出と検証シナリオ計画（#24）');
+    expect(readme).toContain('docs/requirement-planning.md');
+  });
+
+  test('documents permission reuse, data contract, and replan steps', () => {
+    const planning = readRepoFile('docs/requirement-planning.md');
+    expect(planning).toContain('## 許可profile');
+    expect(planning).toContain('## データ契約');
+    expect(planning).toContain('## 人の確認・修正・再計画');
+    expect(planning).toContain('実APIの品質評価は別');
   });
 });
