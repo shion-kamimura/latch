@@ -85,13 +85,11 @@ Issueタイトルには解決したい課題・期待する動作を簡潔・具
 
 Conventional Commitsは本来コミットメッセージの規約ですが、Latchではその形式をPRタイトルにも採用しています。これはリポジトリの方針であり、業界共通の必須規格ではありません。詳細は [AGENTS.md](AGENTS.md) を参照してください。
 
-依頼された実装は、必要な確認・検証の後、専用ブランチへのコミット・push・Draft PR作成まで追加承認なしに進め、変更内容・検証結果・未検証事項とURLを報告します。利用者による作成範囲の指定を優先し、レビュー承認・マージ・デプロイや権限・Secrets変更は別に扱います。実行プラットフォーム側の承認・認証制約は [AGENTS.md](AGENTS.md) の運用変更では無効化できません。
+依頼された実装は、必要な確認・検証の後、専用ブランチへのコミット・push・通常PR作成まで追加承認なしに進め、変更内容・検証結果・未検証事項とURLを報告します。利用者による作成範囲の指定を優先し、レビュー承認・マージ・デプロイや権限・Secrets変更は別に扱います。実行プラットフォーム側の承認・認証制約は [AGENTS.md](AGENTS.md) の運用変更では無効化できません。
 
-IssueからOpenCode / DeepSeekで実装・検証し、Draft PRを作成する手動ワークフローは [IssueからDraft PRを作成する](docs/issue-draft-pr.md) を参照してください。
+Issueで `/opencode このIssueを実装してください` または `/oc このIssueを実装してください` とコメントし、公式OpenCode GitHub連携とDeepSeekに実装・自己テスト・通常PR作成を任せます。PR上のコメントで同じPRへの修正を依頼し、対象commitのChecksとActionsログで通常CIを確認します。自動承認・自動マージ・CI失敗からの無人修復は行いません。
 
-自動化の責務、OpenCode・pnpm・Actionsへの委譲方針、費用・保存期間と後続改善 #54〜#57の順序は [標準機能への委譲設計](docs/automation-delegation.md) を参照してください。AI処理前の依存事前確認と固定baseのpnpm storeキャッシュは実装済みです。検証のみの再実行は後続実装です。
-
-自動化の分割実装・横断モック検証と未検証事項は [#32検証記録](docs/ai-development-validation.md) にまとめています。
+App・Secrets・有効化、起動権限、費用と停止方法、移行・切り戻しと未検証事項は [OpenCode運用手順](docs/opencode.md)、旧責務の置換は [委譲設計](docs/automation-delegation.md) を参照してください。旧Draft経路とその [検証記録](docs/ai-development-validation.md) は過去の構成です。
 
 PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。これは利用仕様であり、検証機能はまだ実装していません。利用者設定による送信許可の再利用、閉じたIssueの再現検証、隔離した依存準備と制御されたテスト通信も仕様として整理しています。実装は #23〜#26で進めます。
 

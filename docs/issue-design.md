@@ -106,4 +106,4 @@ https://github.com/shion-kamimura/latch の最新の docs/issue-design.md を読
 
 登録する手段や認証がない場合、実行プラットフォーム側の承認ポリシー・自動承認レビューなどで操作できない場合は、理由と未完了の範囲を伝え、手動登録できる案を渡します。外部プラットフォームの制約は別管理であり、このガイドで無効化・迂回できません。登録できた場合のみ、作成済みとしてURLを報告します。
 
-Issue登録や依頼された実装のDraft PR作成と、PRのレビュー承認・マージ・デプロイ・権限やSecretsの変更は別の操作です。実装時は [AGENTS.md](../AGENTS.md) に従い、既存の事前確認や [Issue to Draft PRの安全境界と変更範囲](issue-draft-pr.md#安全境界と変更範囲) を維持します。
+Issue登録や依頼された実装の通常PR作成と、PRのレビュー承認・マージ・デプロイ・権限やSecretsの変更は別の操作です。実装時は [AGENTS.md](../AGENTS.md) に従い、[OpenCode運用手順](opencode.md) の起動権限・費用・資格情報の扱いを守ります。
