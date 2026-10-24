@@ -32,6 +32,19 @@ PRは上から順に積み重ねました。作業中に別操作で子PRの一�
 - ソースのhash読取は2 GiB、変更各8 MiB・JSON全体32 MiB、ホストの生ログは各16 MiB、Dockerログは各10 MiB×2世代で制限します。tsbuildinfo等のキャッシュ生成と提出ソースを分けます。CPU・メモリ・pids・時間の境界も維持します。作業領域全体の厳密なディスクquotaではありません。
 - #22〜#27の旧来の一律事前確認を具体的な確認基準に置換し、#23〜#26へ#39の差分を反映しました。既存の依存順・未実装状態を維持しています。
 
+## #22 評価用サンプルAPIと正解データ
+
+`fixtures/order-api/` に、後続の検証機能を評価するためのTypeScript / Node.js・VitestのサンプルAPIを追加しました。base・`changes/correct.patch`・`changes/buggy.patch`、Issue入力 `issue.md`、正解データ `evaluation/cases.json` と評価専用テストを分離しています。
+
+- `node fixtures/order-api/scripts/prepare-candidate.ts base|correct|buggy` で、`evaluation/` を含まない候補を一時ディレクトリへ作成し、既存テストと、正解データを加えた別の評価用コピーで評価専用テストを実行します。
+- 確認結果: baseは既存テスト5件が通り、評価専用テストは `boundary.quantity-at-line-max` の1件が失敗しました。correctは既存5件・評価26件がすべて通過しました。buggyは既存テストが通る一方で、評価専用テストは `boundary.fractional-cents` の1件が失敗しました。
+- baseの不具合は数量上限ちょうど（10）の拒否、buggyの不具合は数量の境界を直す際に割引額を四捨五入してしまう点です。既存テストは数量11の拒否と端数が出ない割引だけを確認するため、どちらも検出できません。
+- `tests/integration/order-api-fixture.test.ts` が上記を再現し、候補に `evaluation/`・`changes/` が含まれないこと、未知の変更名や `../` を含む指定が拒否されることを確認します。
+- 正解データ・評価専用テスト・元の `changes/` は候補へコピーしないため、Latchの探索対象やLLM入力へ混入させない構成です。ただしLLM送信時の除外を実際に確認したわけではありません。
+- fixtureの `pnpm install --frozen-lockfile` を一時コピーで実行し、`vitest@5.0.5` とその依存を解決できること、既存テスト5件が通ることを確認しました。評価専用テストはbaseで境界値1件が失敗し、期待どおりでした。
+- 準備スクリプトは、CIなどfixture側の依存取得を省略したい場合に備えて、リポジトリ本体の `node_modules` を参照する経路も持ちます。fixtureのlockfileとリポジトリ本体のlockfileは独立しています。
+- Latch CLIの検証機能・実LLM・コンテナ隔離は未実装または未検証で、このfixtureだけで製品評価を完了したとは扱いません。
+
 ## 未検証・残る条件
 
 - 実Docker/OpenCodeモック、registry取得、悪意あるinstall scriptの実隔離試験、候補用gatewayイメージのbuildは未検証です。実コンテナ用の準備操作は、プロキシ設定・内部CAがDocker履歴/cacheに残る可能性を理由に実行基盤の自動承認レビューで拒否されました。認証情報を含まないプロキシ・秘密鍵を含まないCAであることを確認し、一時secret mountによる代替案も審査しましたが、ホスト資料のDockerへの受け渡しに利用者の明示許可がないとして拒否されました。Dockerへの受け渡し操作は実行していません。

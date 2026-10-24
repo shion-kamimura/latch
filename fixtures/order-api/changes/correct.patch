@@ -1,0 +1,12 @@
+diff --git a/src/api.ts b/src/api.ts
+--- a/src/api.ts
++++ b/src/api.ts
+@@ -53,7 +53,7 @@
+   if (
+     !isNonNegativeInteger(quantity) ||
+     quantity < 1 ||
+-    quantity >= MAX_UNITS_PER_LINE
++    quantity > MAX_UNITS_PER_LINE
+   ) {
+     return { ok: false, error: 'invalid quantity' };
+   }
