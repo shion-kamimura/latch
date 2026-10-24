@@ -1,0 +1,74 @@
+# OpenCodeによる実装と通常PR CI
+
+## 構成と有効化前の準備
+
+#64の構成は、公式OpenCode GitHub ActionにIssue取得・実装・自己テスト・ブランチ・commit・通常PR作成とPR上の追加修正を任せます。検証結果は既存の `.github/workflows/ci.yml`、Checks、Actionsログに残します。独自のエージェントループ・publisher・本文レンダラー・PR作成前の独立検証器はありません。
+
+管理者が以下を確認してから有効化します。この変更自体はAppのインストール、実権限・Secrets・課金設定の適用や有料試験を行いません。
+
+1. [公式OpenCode GitHub App](https://github.com/apps/opencode-agent) を対象リポジトリに限定してインストールする。Appが要求する権限を確認し、コード読取・ブランチ/commit書込・Issueコメント・PR作成/更新が組織ポリシーで許可されることを確認する。workflow変更にはApp側の対応権限も必要で、不足時は人が引き継ぐ。自動承認・自動マージの権限や設定は追加しない。
+2. Actions Secret `DEEPSEEK_API_KEY` を設定する。旧gateway向けSecretから自動コピーしない。DeepSeekで `deepseek-flash`（DeepSeek V4.1 Flash）を利用できること、API利用予算と停止方法を確認する。モデルは `deepseek/deepseek-flash`、OpenAI互換provider、`https://api.deepseek.com/v1`、出力8192・context 1,000,000を設定して旧モデルを継続する。別モデルへの自動フォールバックは行わない。API互換性・残高・モデル提供状況は実接続で別途確認する。
+3. Node.js 26、packageManager指定のpnpm、GitHub-hosted `ubuntu-latest`、npm・DeepSeek・OpenCode・GitHubへの通信が利用できることを確認する。base依存は `pnpm install --frozen-lockfile --ignore-scripts` とActionsのpnpm cacheで準備する。公式連携がPR headへ切り替えた後のfrozen installと自己テストはAIへ指示する。base準備とhead準備を混同しない。キャッシュhitは検証の証拠ではない。
+4. App経由の通常PRと追加commitから通常CIが動くことを、承認済みの試験予算で下記の実動確認手順に従って確認する。CIを要求するbranch protection / rulesetは管理者が別途設定・確認する。このPRでは変更しない。
+5. Repository variable `OPENCODE_ENABLED=true` を設定するとコメント起動を有効化する。未設定・falseでは起動しない。これは管理者による切替用で、予算の承認や課金上限を代替しない。
+
+## 起動・追加修正・結果の確認
+
+write / maintain / adminの利用者が開いたIssueへ次を投稿します。
+
+```text
+/opencode このIssueの受け入れ条件に沿って実装してください
+```
+
+`/oc` も利用できます。コマンドは空白で区切り、小文字で記載してください。コマンドだけなら公式連携ではスレッド要約になるため、実装依頼を明記します。Issueの作成・編集、ラベル付与、CI失敗だけでは起動しません。
+
+通常PRが作成されたら、最新commitのChecksでCIを確認します。CIはLint・型チェック・format・Unit/Integration・build・CLI E2Eを実行します。自己テストと通常CIは別の実行です。本文の「実行待ち／未確認」は作成時点の情報で、CI終了ごとに自動更新しません。ChecksとActions実行ログ、対象SHAが結果の根拠です。AIの説明や自己テスト成功だけで要件全体を検証済みとしません。
+
+CI失敗やレビュー指摘の修正は、対象PRの会話または行コメントへ次のように依頼します。
+
+```text
+/oc 最新commitのCI失敗ログを確認し、原因を修正してください。実行した自己テストと未確認事項も報告してください
+```
+
+公式連携が同じPRへ追加commitし、通常CIが再実行されます。今回の起動対象は同一リポジトリの開いたPRに限定し、fork PRと閉じたPRは資格情報を渡す前に拒否します。人のcommitを保持し、force pushしません。競合・権限不足時は停止して人が対応します。新しいIssueコメントからの再依頼は新規ブランチ・PRになる可能性があるため、継続修正は既存PR上で依頼してください。旧Issue hashブランチやbot所有マーカーとの互換性は要求しません。
+
+PRタイトルは `<type>: <具体的な変更内容>`。本文はテンプレートの6項目で動作・理由・受け入れ条件への対応を説明します。公式連携は最終回答を本文、追加の短い要約をタイトルに利用するため、両方に指示しています。LLM出力を構文保証する独自修正器はなく、fallbackタイトルや本文不足は人が確認し、PR上で修正を依頼します。新規PRは通常PR（draft=false）で、Draft変換・Ready操作は不要です。人がレビューし、自動承認・自動マージは行いません。
+
+## 起動権限・認証・実行環境・ログ
+
+資格情報を持たないauthorize jobが、コメント作成イベント・独立したコマンド・人間の投稿者を確認します。コメント投稿者、実行actor、再実行者 `GITHUB_TRIGGERING_ACTOR` の現在の権限をGitHub APIで照合し、write / maintain / admin以外や照合失敗を拒否します。author_associationだけでは許可しません。APIキー・App token・checkoutした候補コードはこのjobへ渡しません。公式連携自身も利用者権限を確認します。
+
+implement jobだけに `id-token: write` を与え、OpenCodeのOIDC交換で公式App installation tokenを取得します。`use_github_token: false`、checkoutは `persist-credentials: false`。GitHub標準tokenにはcontents readだけを与え、App認証失敗時に標準tokenへ切り替えません。`GITHUB_TOKEN`で作成したPR・pushでは後続workflowが通常起動しないためです。App tokenで生成したPRと追加commitのCI起動は、組織ポリシーを含め実環境で確認する必要があります。
+
+APIキーは存在確認ステップと公式Actionステップだけに渡し、依存準備ステップへ渡しません。ただし公式連携のプロセスと実装中のコマンドは同じrunner上で動き、キーとAppの書込能力に触れ得ます。旧gateway別コンテナによるキー隔離、read-only/non-rootコンテナ、通信宛先制限、CPU・メモリ・pids制限、候補と独立検証の分離は新構成にはありません。GitHub-hostedの実行ごとのVM分離を使い、self-hosted runnerには移しません。製品CLIの隔離実行要件をこの開発用構成へ読み替えません。
+
+公開セッション共有は `share: 'false'` とconfigの `share: disabled` で明示的に無効化します。採用Actionではshare入力は廃止済みですが、旧版の暗黙共有を避ける意図を保持します。共有を廃止したCLIでもActionsログとGitHubへの回答・コード公開は残ります。環境全体・キー・認証ヘッダーを出力せず、debug loggingを有効化しません。独自の生ログ・session・proposal artifactは保存しません。Actions標準ログとcacheの保存期間・削除、リポジトリの公開範囲はGitHub設定で管理し、Secretsのマスクがすべての漏えいを防ぐとは扱いません。漏えい時は実行停止、キー/token失効、ログ削除と監査を管理者が行います。
+
+## 時間・費用・停止・再依頼
+
+実装jobは30分、権限照合は2分、concurrencyはリポジトリ全体で1実行です。`cancel-in-progress: false` で実行中の作業を新コメントによって中断しません。Actionsのconcurrencyは完全な待ち行列ではなく、待機中の古い実行が置換される場合があります。必要なら完了後に再依頼します。
+
+旧gatewayの既定5 USD予約上限・要求数・通信量・tokenizer計測・usage精算は廃止します。Actions timeoutや8192出力設定はAPI請求額の厳密な上限ではありません。複数API要求や終了時の未精算があるため、管理者はDeepSeek側の利用可能な残高・利用制限と監視、GitHub Actionsの予算・使用量を確認してから有効化します。利用可能なproviderの強制上限がない場合は厳密な上限なしと認識し、承認済みの少額予算内で監視する必要があります。
+
+停止はActions実行のCancel、緊急時はworkflow無効化または `OPENCODE_ENABLED=false`、必要に応じAppアクセス・DeepSeekキーの失効で行います。変数変更だけでは既に実行中のjobは止まらないためCancelも行います。停止しても送信済みAPI分の費用は取り消せません。
+
+失敗時はまずログを確認します。App/OIDC、モデル、認証、依存取得の不足は成功と扱わず、設定を管理者が直してから新しいコメントで再依頼します。既存PRがあればそのPRへ依頼します。CIだけの一時失敗はActionsの再実行で確認でき、有料AIの再起動を必須にしません。無人修復ループ、CIポーリング、CI結果の本文自動同期はありません。
+
+## 移行と切り戻し
+
+1. 旧 `issue-draft-pr.yml` の実行・待機があれば管理者が停止し、途中成果と既存PRを個別確認する。#62をこの移行だけで変更・マージ・クローズしない。既存Draftを一括変換しない。
+2. レビュー後にこの変更をmainへマージする。旧workflow、`.github/automation/`、旧専用チェックを同時に削除し、通常運用を旧prepare/run/publish・proposal schemaへ依存させない。
+3. 上記準備を済ませ、承認済み試験で動作確認する。不要になった旧Secrets・artifact/cacheは管理者が保存方針を確認して整理する。コードの削除だけでは既存データやSecretは消えない。
+4. 問題時は新workflowを無効化して実行をCancelする。既存PRは保持し、手動開発＋通常CIを使う。旧構成へ戻す必要がある場合はこの移行commitをrevertするレビュー付きPRを作り、旧実行環境・Secrets・費用上限を再点検してから有効化する。新旧を同時稼働せず、新成果を旧publisherに渡さない。他人のブランチを上書きしない。
+
+## 確認した資料と残る実動確認
+
+2026-10-24に公式[GitHub連携文書](https://opencode.ai/docs/github/)、[v1.19.4 Action](https://github.com/anomalyco/opencode/blob/148842ef7cb1bc34192b3fff57d0f9721ab9c801/github/action.yml)、同版の [GitHub handler](https://github.com/anomalyco/opencode/blob/148842ef7cb1bc34192b3fff57d0f9721ab9c801/packages/opencode/src/cli/cmd/github.handler.ts) を確認しました。Actionは完全SHA固定ですが、内側でlatest releaseを調べ、公式installスクリプトからCLIを取得します。CLI本体・内側のAction参照まで固定した構成ではありません。`autoupdate: false` はこの初回取得を固定しません。版更新時や再有効化時には実際のCLI版をログで記録し、この互換性を再確認します。
+
+リポジトリ内の試験は起動権限・コマンド・PR境界をモック検証し、workflow設定と開発チェックを確認します。実DeepSeek接続、Appインストール・OIDC、実モデルのPR本文/タイトル品質、botによる通常PR作成・追加commitからのCI連動は未検証です。未設定や予算未承認を完了済みとしません。管理者が承認した予算・環境で以下を確認し、実行URLとSHAを記録してください。
+
+- 小さい試験Issueで実装依頼 → 新規PRの `draft=false`、タイトル、6見出し、自己テストとCI待ちの区別を確認する。
+- そのApp作成PRの最新SHAで通常CIが起動し、ChecksとActionsログで結果を確認する。
+- PR上の修正依頼 → 同じPRに追加commit → そのSHAで通常CI再実行、人の変更保持を確認する。
+- 権限不足の利用者、未設定キー、App失敗が実装成功と扱われないこと、共有リンクが作成されないことを確認する。
+- CI失敗だけではAIが再起動しないこととCancel/無効化の停止手順を確認する。
