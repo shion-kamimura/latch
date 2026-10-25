@@ -8,7 +8,7 @@
 
 1. [公式OpenCode GitHub App](https://github.com/apps/opencode-agent) を対象リポジトリに限定してインストールする。Appが要求する権限を確認し、コード読取・ブランチ/commit書込・Issueコメント・PR作成/更新が組織ポリシーで許可されることを確認する。workflow変更にはApp側の対応権限も必要で、不足時は人が引き継ぐ。自動承認・自動マージの権限や設定は追加しない。
 2. Actions Secret `DEEPSEEK_API_KEY` を設定する。旧gateway向けSecretから自動コピーしない。DeepSeekで `deepseek-flash`（DeepSeek V4.1 Flash）を利用できること、API利用予算と停止方法を確認する。モデルは `deepseek/deepseek-flash`、OpenAI互換provider、`https://api.deepseek.com/v1`、出力8192・context 1,000,000を設定して旧モデルを継続する。別モデルへの自動フォールバックは行わない。API互換性・残高・モデル提供状況は実接続で別途確認する。
-3. Node.js 26、packageManager指定のpnpm、GitHub-hosted `ubuntu-latest`、npm・DeepSeek・OpenCode・GitHubへの通信が利用できることを確認する。base依存は `pnpm install --frozen-lockfile --ignore-scripts` とActionsのpnpm cacheで準備する。公式連携がPR headへ切り替えた後のfrozen installと自己テストはAIへ指示する。base準備とhead準備を混同しない。キャッシュhitは検証の証拠ではない。
+3. Node.js 26、packageManager指定のpnpm、GitHub-hosted `ubuntu-24.04`、npm・DeepSeek・OpenCode・GitHubへの通信が利用できることを確認する。Actions自体はNode.js 24 runtimeで動く版を使い、プロジェクトのNode.js 26とは区別する。base依存は `pnpm install --frozen-lockfile --ignore-scripts` とActionsのpnpm cacheで準備する。公式連携がPR headへ切り替えた後のfrozen installと自己テストはAIへ指示する。base準備とhead準備を混同しない。キャッシュhitは検証の証拠ではない。Action版と互換性の記録は [CI実行環境とGitHub Actionsの保守](ci.md) を参照する。
 4. App経由の通常PRと追加commitから通常CIが動くことを、承認済みの試験予算で下記の実動確認手順に従って確認する。CIを要求するbranch protection / rulesetは管理者が別途設定・確認する。このPRでは変更しない。
 5. Repository variable `OPENCODE_ENABLED=true` を設定するとコメント起動を有効化する。未設定・falseでは起動しない。これは管理者による切替用で、予算の承認や課金上限を代替しない。
 
