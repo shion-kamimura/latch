@@ -29,6 +29,11 @@ try {
     timeout: 10_000,
     maxBuffer: 4096,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      COREPACK_ENABLE_NETWORK: '0',
+      npm_config_manage_package_manager_versions: 'false',
+    },
   }).trim();
   checks.push({
     name: 'pnpm',

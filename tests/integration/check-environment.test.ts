@@ -16,7 +16,13 @@ test('accepts a prepared environment including a pinned .node-version and type-o
   const fakePath = mkdtempSync(join(tmpdir(), 'latch-env-'));
   directories.push(fakePath);
   const executable = join(fakePath, 'pnpm');
-  writeFileSync(executable, '#!/bin/sh\nprintf "12.14.0\\n"\n');
+  writeFileSync(
+    executable,
+    '#!/bin/sh\n' +
+      '[ "$COREPACK_ENABLE_NETWORK" = "0" ] || exit 1\n' +
+      '[ "$npm_config_manage_package_manager_versions" = "false" ] || exit 1\n' +
+      'printf "12.14.0\\n"\n',
+  );
   chmodSync(executable, 0o755);
   const result = spawnSync(
     process.execPath,
