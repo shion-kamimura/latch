@@ -21,13 +21,26 @@ export function runGit(
   args: readonly string[],
   options: { allowFailure?: boolean } = {},
 ): GitResult {
-  const result = spawnSync('git', ['-c', 'core.quotepath=false', ...args], {
-    cwd,
-    encoding: 'buffer',
-    env: gitEnvironment,
-    timeout: 30_000,
-    windowsHide: true,
-  });
+  // diff may refresh stat information in the index even for a read-only input
+  // resolution. In particular, restored files can have new mtimes but identical
+  // contents. Disable that refresh as well as optional locking.
+  const result = spawnSync(
+    'git',
+    [
+      '-c',
+      'core.quotepath=false',
+      '-c',
+      'diff.autoRefreshIndex=false',
+      ...args,
+    ],
+    {
+      cwd,
+      encoding: 'buffer',
+      env: gitEnvironment,
+      timeout: 30_000,
+      windowsHide: true,
+    },
+  );
   const stdout = Buffer.isBuffer(result.stdout)
     ? result.stdout
     : Buffer.alloc(0);

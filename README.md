@@ -69,6 +69,15 @@ node fixtures/order-api/scripts/prepare-candidate.ts correct
 
 依存準備・隔離実行の方針・未検証事項は [fixtureのREADME](fixtures/order-api/README.md) を参照してください。
 
+計画から生成・隔離実行・テキスト／JSONレポートまでの接続は、[全工程の評価手順と制約](docs/order-api-evaluation.md) にまとめています。固定応答の回帰テストは正しい変更・既存テストを通る不具合・曖昧な要件・実行時間超過を比較し、要件と実行証拠の対応、正解データの送信除外、対象ワークツリーの不変性を確認します。
+
+```sh
+pnpm build
+pnpm exec vitest run --project e2e tests/e2e/evaluation.test.ts
+```
+
+Node.js 26、リポジトリの開発依存、loopback通信が必要です。実APIの品質評価は未実施で、固定応答の合格から抽出・生成品質やAPI全体の正しさを保証しません。実API評価に必要なBYOK/profile、要求数・費用・時間の上限、誤検出・見逃し・未検証の記録方法は上記手順を参照してください。
+
 ## ビルドとCLIの実行
 
 ```sh
@@ -117,39 +126,16 @@ node dist/cli.mjs run --plan latch-plan.json \
 
 レポートは既定で日本語テキスト、`--json`で`schemaVersion: "1"`を持つ機械可読JSONを標準出力へ出します。進捗・警告は標準エラーへ分離し、要件ごとの集約状態、条件と実行証拠の対応、未検証事項、再実行コマンドを含みます。要件内に検証成功以外の条件があれば要件を検証成功に集約しません。検証を完了できた場合は失敗条件を含んでも終了コード0、入力不正は1、起動失敗・環境不足・時間上限などで部分結果しか出せない場合は終了コード2です。テスト成功は要件全体・コード全体の正しさの証明ではありません。設計理由・依存準備の方式・制約・未検証事項は [生成テストの隔離実行と証拠収集](docs/isolated-execution.md) を参照してください。
 
-## 開発フローとCI
+## 開発に参加する
 
-### AIとIssueを設計する
+資料の役割と実装状態は [ドキュメント索引](docs/README.md)、コードの責務は [アーキテクチャ](ARCHITECTURE.md) を参照してください。
 
-参照資料、要件の整理方法、依頼に基づくIssue登録の運用は [Issue設計ガイド](docs/issue-design.md) にまとめています。新しいチャットでは、相談内容とともに次のように依頼してください。
+- Issue設計: [Issue設計ガイド](docs/issue-design.md)
+- 実装・検証・通常PRの作成: [開発手順](docs/development.md)
+- AIの作業開始: [AGENTS.md](AGENTS.md)
+- OpenCodeの起動・停止・権限・費用: [運用手順](docs/opencode.md)
+- 開発ハーネスの設計・評価・改善: [設計方針](docs/harness/design.md)
 
-```text
-https://github.com/shion-kamimura/latch の最新の docs/issue-design.md を参照し、
-「○○」をIssueにまとめて、GitHubに登録してください。
-作業に必要な情報が不足していれば質問し、参照できない資料は明示してください。
-追加承認を待たずに登録し、作成したIssueのURLを報告してください。
-```
+開発環境は `node scripts/check-environment.ts` で確認できます。これはバージョンと依存の読取検査であり、テストの成功や隔離の安全性を判定するものではありません。準備・失敗時の手順は [開発手順](docs/development.md) を参照してください。
 
-案だけが必要なら「案だけ。登録しないで」、登録前に確認したい場合は「承認後に作成して」と指定してください。設計相談だけの依頼ではIssueを登録しません。
-
-### 実装と検証
-
-Issueタイトルには解決したい課題・期待する動作を簡潔・具体的に書き、`[Feature]` などの種別接頭辞は必須にしません。種類は `enhancement`・`bug`・`documentation` などの既存ラベルで分類します。[種別ラベルの対応](docs/issue-design.md#issueの種別ラベル) を参照してください。
-
-手動・AI・自動生成のPRタイトルは `<type>: <具体的な変更内容>` に統一します。主目的に合わせて `feat`（機能追加）、`fix`（不具合修正）、`docs`（文書）、`refactor`（動作を変えない構造整理）、`test`（テスト）、`ci`（CI）、`chore`（開発環境・保守）を選びます。例は `docs: Issue登録時の追加承認を不要にする`、`fix: 未対応引数で終了コード1を返す`、`feat: PRの要件を抽出する` です。関連Issueは本文の `Closes #番号` などで紐づけ、タイトルのIssue番号は必須にしません。
-
-Conventional Commitsは本来コミットメッセージの規約ですが、Latchではその形式をPRタイトルにも採用しています。これはリポジトリの方針であり、業界共通の必須規格ではありません。詳細は [AGENTS.md](AGENTS.md) を参照してください。
-
-依頼された実装は、必要な確認・検証の後、専用ブランチへのコミット・push・通常PR作成まで追加承認なしに進め、変更内容・検証結果・未検証事項とURLを報告します。利用者による作成範囲の指定を優先し、レビュー承認・マージ・デプロイや権限・Secrets変更は別に扱います。実行プラットフォーム側の承認・認証制約は [AGENTS.md](AGENTS.md) の運用変更では無効化できません。
-
-Issueで `/opencode このIssueを実装してください` または `/oc このIssueを実装してください` とコメントし、公式OpenCode GitHub連携とDeepSeekに実装・自己テスト・通常PR作成を任せます。PR上のコメントで同じPRへの修正を依頼し、対象commitのChecksとActionsログで通常CIを確認します。自動承認・自動マージ・CI失敗からの無人修復は行いません。
-
-App・Secrets・有効化、起動権限、費用と停止方法、移行・切り戻しと未検証事項は [OpenCode運用手順](docs/opencode.md)、旧責務の置換は [委譲設計](docs/automation-delegation.md) を参照してください。旧Draft経路とその [検証記録](docs/ai-development-validation.md) は過去の構成です。
-
-PR作成前にローカル差分とIssueをLatchで検証する入力・出力・異常時の扱い・分割案は [PR作成前のローカル差分とIssueを検証する利用仕様](docs/pre-pr-verification.md) にまとめています。このうち #23 の入力解決、#24 の要件抽出・検証計画、#25 のテスト生成・隔離実行・証拠収集、#26 の要件→テスト→証拠を対応づけたテキスト・JSONレポートを実装済みです。Markdownファイル出力、CI連携、GitHub PR投稿は未実装です。利用者設定による送信許可の再利用、閉じたIssueの再現検証、隔離した依存準備と制御されたテスト通信を仕様として整理しています。実APIの品質評価は未実施です。
-
-`src/cli.ts` がエントリーポイントです。`src/run-cli.ts` が引数と出力を処理し、`src/help.ts` がヘルプを提供します。`src/verify/` が入力解決、`src/plan/` が要件抽出・計画、`src/run/` がテスト生成・隔離実行・証拠収集を担当します。
-
-Issueテンプレートに目的・期待動作・スコープ・受け入れ条件を記載し、専用ブランチで開発してください。ライブラリ選定・テスト配置・内部構造の整理は理由と仮定を記して進めます。依頼外の互換性破壊や実環境の権限適用など、具体的な影響がある判断に確認を絞ります。AIエージェント向けのルールは [AGENTS.md](AGENTS.md) に定義しています。
-
-Pull Request作成・更新時とmainへのpush時に、Node.js 26とpnpmでLint、型チェック、フォーマット確認、全テスト、ビルドを実行します。PRテンプレートには実行した検証結果と未検証事項を記載してください。全ジョブは `ubuntu-24.04` に固定し、ActionsはNode.js 24対応版を使用します。変更前後の版と互換性の確認結果は [CI実行環境とGitHub Actionsの保守](docs/ci.md) に記録しています。
+Pull Request作成・更新時とmainへのpush時に、Node.js 26とpnpmでLint、型チェック、フォーマット確認、全テスト、ビルドを実行します。全ジョブは `ubuntu-24.04` に固定し、ActionsはNode.js 24対応版を使用します。変更前後の版と互換性の確認結果は [CI実行環境とGitHub Actionsの保守](docs/ci.md) に記録しています。
