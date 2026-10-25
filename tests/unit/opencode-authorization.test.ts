@@ -5,6 +5,8 @@ const workflow = readFileSync(
   new URL('../../.github/workflows/opencode.yml', import.meta.url),
   'utf8',
 );
+const [beforeJobs = '', jobs = ''] = workflow.split('\njobs:\n');
+const [authorizeJob = '', implementJob = ''] = jobs.split('\n  implement:\n');
 // Execute the actual inline authorization script with GitHub/core mocks.
 const script = workflow
   .split('          script: |\n')[1]!
@@ -19,6 +21,7 @@ async function authorize(
     body?: string;
     type?: string;
     permission?: string;
+    actorPermission?: string;
     rerunPermission?: string;
     apiFailure?: boolean;
     pr?: 'local' | 'fork' | 'closed' | 'deleted';
@@ -33,9 +36,11 @@ async function authorize(
     return {
       data: {
         permission:
-          username === 'rerunner'
-            ? (options.rerunPermission ?? 'write')
-            : (options.permission ?? 'write'),
+          username === 'actor'
+            ? (options.actorPermission ?? 'write')
+            : username === 'rerunner'
+              ? (options.rerunPermission ?? 'write')
+              : (options.permission ?? 'write'),
       },
     };
   });
@@ -62,7 +67,7 @@ async function authorize(
   await run(
     { setOutput: (key: string, value: string) => (output[key] = value) },
     {
-      actor: 'author',
+      actor: 'actor',
       repo: { owner: 'owner', repo: 'latch' },
       payload: {
         comment: {
@@ -83,6 +88,37 @@ async function authorize(
   return { output, getPermission, getPR };
 }
 
+describe('OpenCode implementation queue configuration', () => {
+  test('only the authorized implementation job uses the repository queue', () => {
+    expect(beforeJobs).not.toMatch(/^concurrency:/m);
+    expect(authorizeJob).not.toMatch(/^\s+concurrency:/m);
+    expect(workflow.match(/^\s*concurrency:/gm)).toHaveLength(1);
+    expect(implementJob).toMatch(/^ {4}needs: authorize$/m);
+    expect(implementJob).toMatch(
+      /^ {4}if: needs\.authorize\.outputs\.allowed == 'true'$/m,
+    );
+    expect(implementJob).toContain(
+      '    concurrency:\n' +
+        '      group: opencode-${{ github.repository }}\n' +
+        '      cancel-in-progress: false\n' +
+        '      queue: max\n',
+    );
+    expect(implementJob).not.toMatch(/^ {4}strategy:/m);
+  });
+
+  test('authorization remains enabled explicitly and has no implementation credentials', () => {
+    expect(authorizeJob).toMatch(/^ {4}if: vars\.OPENCODE_ENABLED == 'true'$/m);
+    expect(authorizeJob).toContain(
+      '      allowed: ${{ steps.authorize.outputs.allowed }}',
+    );
+    expect(beforeJobs + authorizeJob).not.toMatch(
+      /secrets\.|id-token:|actions\/checkout@/,
+    );
+    expect(implementJob).toContain('      id-token: write');
+    expect(implementJob).toContain('${{ secrets.DEEPSEEK_API_KEY }}');
+  });
+});
+
 describe('OpenCode authorization before credentials', () => {
   test.each(['write', 'maintain', 'admin'])(
     'allows current %s permission',
@@ -91,7 +127,7 @@ describe('OpenCode authorization before credentials', () => {
       expect(result.output.allowed).toBe('true');
       expect(
         result.getPermission.mock.calls.map(([arg]) => arg.username),
-      ).toEqual(['author', 'rerunner']);
+      ).toEqual(['author', 'actor', 'rerunner']);
     },
   );
 
@@ -135,6 +171,12 @@ describe('OpenCode authorization before credentials', () => {
     );
   });
 
+  test('rejects an event actor without write access', async () => {
+    await expect(authorize({ actorPermission: 'read' })).rejects.toThrow(
+      'Write permission required',
+    );
+  });
+
   test('rejects a missing rerun actor', async () => {
     await expect(authorize({ rerunActor: '' })).rejects.toThrow(
       'Missing actor',
@@ -166,12 +208,13 @@ describe('OpenCode authorization before credentials', () => {
     },
   );
 
-  test.each(['fork', 'closed', 'deleted'] as const)(
-    'rejects %s PR',
-    async (pr) => {
-      await expect(authorize({ pr })).rejects.toThrow(
-        'Only open same-repository PRs',
-      );
-    },
-  );
+  test.each(
+    (['fork', 'closed', 'deleted'] as const).flatMap((pr) =>
+      [false, true].map((review) => ({ pr, review })),
+    ),
+  )('rejects $pr PR (review=$review)', async ({ pr, review }) => {
+    await expect(authorize({ pr, review })).rejects.toThrow(
+      'Only open same-repository PRs',
+    );
+  });
 });

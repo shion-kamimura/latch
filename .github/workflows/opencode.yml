@@ -9,11 +9,6 @@ on:
 permissions:
   contents: read
 
-# Serialise implementation runs, including Issue requests and PR follow-ups.
-concurrency:
-  group: opencode-${{ github.repository }}
-  cancel-in-progress: false
-
 jobs:
   authorize:
     if: vars.OPENCODE_ENABLED == 'true'
@@ -54,6 +49,11 @@ jobs:
   implement:
     needs: authorize
     if: needs.authorize.outputs.allowed == 'true'
+    # Queue only authorized requests; share one slot across Issues and PR comments.
+    concurrency:
+      group: opencode-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     permissions:
       contents: read
