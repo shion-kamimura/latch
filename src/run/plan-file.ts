@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { RequirementPlanError } from '../plan/errors.js';
 import type {
   MissingScenario,
+  RequirementOrigin,
   RequirementPlan,
   SourceReference,
 } from '../plan/types.js';
@@ -12,7 +13,7 @@ const MAX_PLAN_BYTES = 5 * 1024 * 1024;
 const MAX_TEXT = 4_000;
 
 function planError(message: string, guidance: string): never {
-  throw new RequirementPlanError(message, guidance);
+  throw new RequirementPlanError(message, guidance, 1);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,7 +37,7 @@ function optionalString(value: unknown): string | null {
 function sourceOf(value: unknown): SourceReference {
   if (!isRecord(value)) {
     planError(
-      '計画ファイルの条件に出典がありません。',
+      '計画ファイルの要件または条件に出典がありません。',
       'latch plan --json の出力をそのまま保存して --plan に指定してください。',
     );
   }
@@ -215,6 +216,11 @@ export function readRunPlan(path: string, cwd: string): RunPlanInput {
       rawRequirement.text,
       'requirements.text',
     ).slice(0, MAX_TEXT);
+    const requirementSource = sourceOf(rawRequirement.source);
+    const requirementOrigin: RequirementOrigin =
+      rawRequirement.origin === 'diff-inferred'
+        ? 'diff-inferred'
+        : 'issue-explicit';
     const rawConditions = rawRequirement.conditions;
     if (!Array.isArray(rawConditions)) continue;
     for (const rawCondition of rawConditions) {
@@ -236,6 +242,8 @@ export function readRunPlan(path: string, cwd: string): RunPlanInput {
         id,
         requirementId,
         requirementText,
+        requirementSource,
+        requirementOrigin,
         text: stringValue(rawCondition.text, 'conditions.text').slice(
           0,
           MAX_TEXT,

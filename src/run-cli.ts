@@ -109,8 +109,17 @@ async function runCommand(
     for (const warning of report.warnings) {
       io.stderr(`latch: 警告: ${warning}\n`);
     }
-    io.stdout(options.json ? renderRunJson(report) : renderRunText(report));
-    return 0;
+    const output = options.json ? renderRunJson(report) : renderRunText(report);
+    try {
+      io.stdout(output);
+    } catch {
+      io.stderr('latch: レポートの出力に失敗しました。\n');
+      io.stderr(
+        '次に: 標準出力の状態を確認し、同じ入力で再実行してください。\n',
+      );
+      return 2;
+    }
+    return report.verification === 'partial' ? 2 : 0;
   } catch (error) {
     if (isVerificationInputError(error)) {
       io.stderr(`latch: ${error.message}\n`);
@@ -122,7 +131,9 @@ async function runCommand(
       io.stderr(`次に: ${error.guidance}\n`);
       return error.exitCode;
     }
-    throw error;
+    io.stderr('latch: 検証の実行に失敗しました。\n');
+    io.stderr('次に: 入力を確認し、同じ条件で再実行してください。\n');
+    return 2;
   }
 }
 
