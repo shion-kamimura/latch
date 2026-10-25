@@ -19,6 +19,8 @@
 
 ## 履歴資料
 
+開発ハーネスの継続記録: [環境診断の修正前後比較](harness/runs/2026-10-25-followup.md)。固定入力の比較と、エージェントの独立評価を区別します。
+
 - [旧Issue to Draft PR](issue-draft-pr.md): 廃止済み。現行手順ではない。
 - [自動化の委譲・移行記録](automation-delegation.md): #64時点の責務置換。Issueの状態は最新GitHubで確認する。
 - [旧検証記録](ai-development-validation.md)、[旧開発fixture](../fixtures/ai-development/README.md): 当時のrevisionの記録。現行構成の保証には使わない。

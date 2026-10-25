@@ -1,0 +1,456 @@
+{
+  "schemaVersion": 1,
+  "kind": "environment-regression",
+  "startedAt": "2026-10-25T10:56:31.020Z",
+  "baseline": "9a067b0cabb3b6088493479a9c3c2c64a50522b5",
+  "currentHead": "9a067b0cabb3b6088493479a9c3c2c64a50522b5",
+  "currentScript": "ef3f59ca5ef63f32799a49a2a7456dca5e55dfa7",
+  "environment": {
+    "node": "26.12.0",
+    "platform": "linux",
+    "arch": "x64"
+  },
+  "model": null,
+  "additionalInterventions": null,
+  "llmCost": null,
+  "limitations": [
+    "固定fixtureでの診断プログラム比較。独立エージェント・別セッション・実pnpmの評価ではない。",
+    "時間はローカル子プロセスの実測。LLM費用・CI費用は不明。"
+  ],
+  "summary": [
+    {
+      "version": "baseline",
+      "passed": 9,
+      "total": 21,
+      "inconclusive": 0
+    },
+    {
+      "version": "current",
+      "passed": 21,
+      "total": 21,
+      "inconclusive": 0
+    }
+  ],
+  "runs": [
+    {
+      "version": "baseline",
+      "case": "ready",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 0,
+      "durationMs": 90,
+      "failures": []
+    },
+    {
+      "version": "baseline",
+      "case": "ready",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 0,
+      "durationMs": 88,
+      "failures": []
+    },
+    {
+      "version": "baseline",
+      "case": "ready",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 0,
+      "durationMs": 91,
+      "failures": []
+    },
+    {
+      "version": "baseline",
+      "case": "missing-node-version",
+      "trial": 1,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 88,
+      "failures": ["unexpected-stderr", "missing-remediation"]
+    },
+    {
+      "version": "baseline",
+      "case": "missing-node-version",
+      "trial": 2,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 78,
+      "failures": ["unexpected-stderr", "missing-remediation"]
+    },
+    {
+      "version": "baseline",
+      "case": "missing-node-version",
+      "trial": 3,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 79,
+      "failures": ["unexpected-stderr", "missing-remediation"]
+    },
+    {
+      "version": "baseline",
+      "case": "invalid-node-version",
+      "trial": 1,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 88,
+      "failures": ["missing-remediation", "invalid-version-guidance"]
+    },
+    {
+      "version": "baseline",
+      "case": "invalid-node-version",
+      "trial": 2,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 81,
+      "failures": ["missing-remediation", "invalid-version-guidance"]
+    },
+    {
+      "version": "baseline",
+      "case": "invalid-node-version",
+      "trial": 3,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 82,
+      "failures": ["missing-remediation", "invalid-version-guidance"]
+    },
+    {
+      "version": "baseline",
+      "case": "node-version-directory",
+      "trial": 1,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 75,
+      "failures": ["unexpected-stderr", "missing-remediation"]
+    },
+    {
+      "version": "baseline",
+      "case": "node-version-directory",
+      "trial": 2,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 83,
+      "failures": ["unexpected-stderr", "missing-remediation"]
+    },
+    {
+      "version": "baseline",
+      "case": "node-version-directory",
+      "trial": 3,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 82,
+      "failures": ["unexpected-stderr", "missing-remediation"]
+    },
+    {
+      "version": "baseline",
+      "case": "lockfile-directory",
+      "trial": 1,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 0,
+      "durationMs": 94,
+      "failures": ["exit-code", "false-ready"]
+    },
+    {
+      "version": "baseline",
+      "case": "lockfile-directory",
+      "trial": 2,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 0,
+      "durationMs": 84,
+      "failures": ["exit-code", "false-ready"]
+    },
+    {
+      "version": "baseline",
+      "case": "lockfile-directory",
+      "trial": 3,
+      "passed": false,
+      "inconclusive": false,
+      "exitCode": 0,
+      "durationMs": 85,
+      "failures": ["exit-code", "false-ready"]
+    },
+    {
+      "version": "baseline",
+      "case": "missing-pnpm",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 92,
+      "failures": []
+    },
+    {
+      "version": "baseline",
+      "case": "missing-pnpm",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 84,
+      "failures": []
+    },
+    {
+      "version": "baseline",
+      "case": "missing-pnpm",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 84,
+      "failures": []
+    },
+    {
+      "version": "baseline",
+      "case": "missing-dependency",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 90,
+      "failures": []
+    },
+    {
+      "version": "baseline",
+      "case": "missing-dependency",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 100,
+      "failures": []
+    },
+    {
+      "version": "baseline",
+      "case": "missing-dependency",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 90,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "ready",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 0,
+      "durationMs": 88,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "ready",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 0,
+      "durationMs": 92,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "ready",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 0,
+      "durationMs": 86,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "missing-node-version",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 98,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "missing-node-version",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 95,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "missing-node-version",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 86,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "invalid-node-version",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 95,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "invalid-node-version",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 90,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "invalid-node-version",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 88,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "node-version-directory",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 91,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "node-version-directory",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 87,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "node-version-directory",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 86,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "lockfile-directory",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 82,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "lockfile-directory",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 103,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "lockfile-directory",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 83,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "missing-pnpm",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 79,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "missing-pnpm",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 86,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "missing-pnpm",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 83,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "missing-dependency",
+      "trial": 1,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 83,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "missing-dependency",
+      "trial": 2,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 85,
+      "failures": []
+    },
+    {
+      "version": "current",
+      "case": "missing-dependency",
+      "trial": 3,
+      "passed": true,
+      "inconclusive": false,
+      "exitCode": 1,
+      "durationMs": 91,
+      "failures": []
+    }
+  ]
+}
