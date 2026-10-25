@@ -48,7 +48,13 @@ APIキーは存在確認ステップと公式Actionステップだけに渡し�
 
 ## 時間・費用・停止・再依頼
 
-実装jobと権限照合jobにリポジトリ独自の短いtimeoutは設定しません。GitHub Actionsの既定のjob timeout（360分）とサービス側の実行上限は適用され、無期限の実行ではありません。concurrencyはリポジトリ全体で1実行です。`cancel-in-progress: false` で実行中の作業を新コメントによって中断しません。Actionsのconcurrencyは完全な待ち行列ではなく、待機中の古い実行が置換される場合があります。必要なら完了後に再依頼します。
+実装jobと権限照合jobにリポジトリ独自の短いtimeoutは設定しません。GitHub Actionsの既定のjob timeout（360分）とサービス側の実行上限は適用され、無期限の実行ではありません。
+
+concurrencyは認可済みのimplement jobだけに設定し、Issue依頼・PR会話コメント・行コメントを共通の `opencode-${{ github.repository }}` グループで直列化します。リポジトリ全体で実装は同時に1件です。authorize jobはこのキューを使わず、botのPR作成通知、コマンドのないコメント、権限不足・対象外のIssue/PRなどの不許可イベントはimplement jobへ進みません。資格情報もimplement jobだけに渡します。
+
+`cancel-in-progress: false` で実行中の作業を新コメントによって中断せず、`queue: max` で最大100件の実装jobを待機させます。上限内の待機依頼は後続の依頼で置換されません。満杯時は追加のjobがキャンセルされます。[GitHub公式の順序仕様](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency) は、concurrencyグループで待機し始めた時点を基準とするFIFOです。認可jobの所要時間やjobの開始時刻は変わるため、コメント投稿順・workflow起動順の厳密なFIFOは保証しません。独自のキュー保存・dispatcher・定期ポーリング・重複排除・自動再試行は追加しません。
+
+待機・失敗・キャンセルはActionsのOpenCode一覧から該当コメントの実行を開き、authorize / implement各jobの状態とログを確認します。キュー満杯などでキャンセルされた依頼は自動再投入されません。元コメント、実行URL、既存PR・途中成果を確認し、実行中・待機中の同じ依頼がないこととキューに空きができたことを確認してから、新しい `/oc` または `/opencode` コメントで再依頼します。既存PRがあればそのPRへ、なければ元のIssueへ投稿してください。設定変更後の確認にはmain反映後の新しいコメントを使い、元のworkflow revisionを使う古い実行の再実行と区別します。
 
 旧gatewayの既定5 USD予約上限・要求数・通信量・tokenizer計測・usage精算は廃止します。Actions timeoutや8192出力設定はAPI請求額の厳密な上限ではありません。複数API要求や終了時の未精算があるため、管理者はDeepSeek側の利用可能な残高・利用制限と監視、GitHub Actionsの予算・使用量を確認してから有効化します。利用可能なproviderの強制上限がない場合は厳密な上限なしと認識し、承認済みの少額予算内で監視する必要があります。
 
@@ -73,10 +79,11 @@ APIキーは存在確認ステップと公式Actionステップだけに渡し�
 
 2026-10-24に公式[GitHub連携文書](https://opencode.ai/docs/github/)、[v1.19.4 Action](https://github.com/anomalyco/opencode/blob/148842ef7cb1bc34192b3fff57d0f9721ab9c801/github/action.yml)、同版の [GitHub handler](https://github.com/anomalyco/opencode/blob/148842ef7cb1bc34192b3fff57d0f9721ab9c801/packages/opencode/src/cli/cmd/github.handler.ts) を確認しました。Actionは完全SHA固定ですが、内側でlatest releaseを調べ、公式installスクリプトからCLIを取得します。CLI本体・内側のAction参照まで固定した構成ではありません。`autoupdate: false` はこの初回取得を固定しません。版更新時や再有効化時には実際のCLI版をログで記録し、この互換性を再確認します。
 
-リポジトリ内の試験は起動権限・コマンド・PR境界をモック検証し、workflow設定と開発チェックを確認します。実DeepSeek接続、Appインストール・OIDC、実モデルのPR本文/タイトル品質、botによる通常PR作成・追加commitからのCI連動は未検証です。未設定や予算未承認を完了済みとしません。管理者が承認した予算・環境で以下を確認し、実行URLとSHAを記録してください。
+リポジトリ内の試験は起動権限・コマンド・PR境界をモック検証し、concurrencyの配置・設定値・認可条件による除外と開発チェックを確認します。ローカル試験はGitHub側のキュー動作を実証するものではありません。複数依頼の実キュー保持・直列実行、実DeepSeek接続、Appインストール・OIDC、実モデルのPR本文/タイトル品質、botによる通常PR作成・追加commitからのCI連動は未検証です。未設定や予算未承認を完了済みとしません。管理者が承認した予算・環境で以下を確認し、実行URLとSHAを記録してください。
 
 - 小さい試験Issueで実装依頼 → 新規PRの `draft=false`、タイトル、6見出し、自己テストとCI待ちの区別を確認する。
 - そのApp作成PRの最新SHAで通常CIが起動し、ChecksとActionsログで結果を確認する。
 - PR上の修正依頼 → 同じPRに追加commit → そのSHAで通常CI再実行、人の変更保持を確認する。
 - 権限不足の利用者、未設定キー、App失敗が実装成功と扱われないこと、共有リンクが作成されないことを確認する。
 - CI失敗だけではAIが再起動しないこととCancel/無効化の停止手順を確認する。
+- 1件の実装中に2件以上の有効な依頼とbot通知を発生させ、有効な依頼のimplement jobが待機し続け、bot通知ではimplement jobがスキップされることを確認する。待機依頼が置換されず、実装が1件ずつ進むことを各実行URLで記録する。有料実行は承認済み予算内に限る。
