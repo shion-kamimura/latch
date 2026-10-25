@@ -137,3 +137,5 @@ node dist/cli.mjs run --plan latch-plan.json \
 - 開発ハーネスの設計・評価・改善: [設計方針](docs/harness/design.md)
 
 開発環境は `node scripts/check-environment.ts` で確認できます。これはバージョンと依存の読取検査であり、テストの成功や隔離の安全性を判定するものではありません。準備・失敗時の手順は [開発手順](docs/development.md) を参照してください。
+
+Pull Request作成・更新時とmainへのpush時に、Node.js 26とpnpmでLint、型チェック、フォーマット確認、全テスト、ビルドを実行します。全ジョブは `ubuntu-24.04` に固定し、ActionsはNode.js 24対応版を使用します。変更前後の版と互換性の確認結果は [CI実行環境とGitHub Actionsの保守](docs/ci.md) に記録しています。
