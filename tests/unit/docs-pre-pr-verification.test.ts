@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
 const readRepoFile = (path: string): string =>
@@ -13,15 +15,25 @@ describe('pre-PR verification spec', () => {
   });
 
   test('local document links resolve inside the repository', () => {
-    for (const document of [
-      'README.md',
-      'AGENTS.md',
-      'docs/pre-pr-verification.md',
-      'docs/ai-development-validation.md',
-      'docs/requirement-planning.md',
-      'docs/isolated-execution.md',
-      'fixtures/order-api/README.md',
-    ]) {
+    const documents = execFileSync(
+      'git',
+      [
+        'ls-files',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+        '-z',
+        '--',
+        '*.md',
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        encoding: 'utf8',
+      },
+    )
+      .split('\0')
+      .filter(Boolean);
+    for (const document of new Set(documents)) {
       for (const match of readRepoFile(document).matchAll(/\]\(([^)]+)\)/g)) {
         const target = match[1]?.split('#')[0];
         if (!target || /^(?:https?:|mailto:)/.test(target)) continue;

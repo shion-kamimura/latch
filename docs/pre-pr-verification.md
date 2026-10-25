@@ -76,6 +76,8 @@ latch run --plan latch-plan.json --profile <worktree外の許可profile> [--json
 
 ## 対象とする利用の流れ
 
+> ここからは将来分を含む利用契約です。`--issue`・`--report`・製品のCI連携など、実装済み一覧にない構文や例は現在利用できる機能を示しません。現行の操作は上の実装済み各節とREADME、詳細のplan/run仕様を参照してください。
+
 ```text
 AIによる変更 → Latchによる検証 → 必要に応じた修正・再検証 → 結果を添えたDraft PR
 ```
