@@ -69,6 +69,15 @@ node fixtures/order-api/scripts/prepare-candidate.ts correct
 
 依存準備・隔離実行の方針・未検証事項は [fixtureのREADME](fixtures/order-api/README.md) を参照してください。
 
+計画から生成・隔離実行・テキスト／JSONレポートまでの接続は、[全工程の評価手順と制約](docs/order-api-evaluation.md) にまとめています。固定応答の回帰テストは正しい変更・既存テストを通る不具合・曖昧な要件・実行時間超過を比較し、要件と実行証拠の対応、正解データの送信除外、対象ワークツリーの不変性を確認します。
+
+```sh
+pnpm build
+pnpm exec vitest run --project e2e tests/e2e/evaluation.test.ts
+```
+
+Node.js 26、リポジトリの開発依存、loopback通信が必要です。実APIの品質評価は未実施で、固定応答の合格から抽出・生成品質やAPI全体の正しさを保証しません。実API評価に必要なBYOK/profile、要求数・費用・時間の上限、誤検出・見逃し・未検証の記録方法は上記手順を参照してください。
+
 ## ビルドとCLIの実行
 
 ```sh
