@@ -20,6 +20,8 @@ jobs:
           node-version: '26'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Check development environment
+        run: node scripts/check-environment.ts
       - name: Lint
         run: pnpm lint
       - name: Typecheck

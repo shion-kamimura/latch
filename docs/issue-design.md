@@ -1,6 +1,6 @@
 # Issue設計ガイド
 
-Latchの開発Issueを、AIと人間が共同で設計するためのガイドです。新しいチャットでは過去の会話や記憶を前提にせず、最新のリポジトリを確認してください。実装時のルールは [AGENTS.md](../AGENTS.md)、Issueの項目名と必須項目は [開発Issueテンプレート](../.github/ISSUE_TEMPLATE/feature.yml) を正とします。
+Latchの開発Issueを、AIと人間が共同で設計するためのガイドです。新しいチャットでは過去の会話や記憶を前提にせず、最新のリポジトリを確認してください。作業の入口は [AGENTS.md](../AGENTS.md)、実装・PR規則の正本は [開発手順](development.md)、Issueの項目名と必須項目は [開発Issueテンプレート](../.github/ISSUE_TEMPLATE/feature.yml) を正とします。
 
 ## チャット開始時の利用例
 
@@ -94,7 +94,7 @@ https://github.com/shion-kamimura/latch の最新の docs/issue-design.md を読
 
 ### 実装PRのタイトル
 
-手動・AI・自動生成とも、[AGENTS.md](../AGENTS.md) の `<type>: <具体的な変更内容>` を使用します。文書変更は `docs: Issue登録時の追加承認を不要にする`、不具合修正は `fix: 未対応引数で終了コード1を返す`、機能追加は `feat: PRの要件を抽出する` が例です。関連IssueはPR本文の `Closes #番号` などで紐づけ、タイトルに番号を入れることは必須にしません。
+手動・AI・自動生成とも [開発手順のPR規則](development.md#4-差分を確認して通常prを作る) を参照します。主目的に合うtypeと具体的な変更内容を使い、全条件を満たしていない親Issueを自動closeしません。
 
 ## 4. 依頼に基づいてGitHubに登録する
 

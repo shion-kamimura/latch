@@ -4,7 +4,7 @@ refactor（動作を変えない構造整理）/ test（テスト）/ ci（CI）
 例: docs: Issue登録時の追加承認を不要にする
 例: fix: 未対応引数で終了コード1を返す
 例: feat: PRの要件を抽出する
-Issue番号はタイトルに必須ではない。関連Issueは本文で紐づける。詳細は AGENTS.md。 -->
+Issue番号はタイトルに必須ではない。関連Issueは本文で紐づける。詳細は docs/development.md。 -->
 
 ## 変更概要
 
@@ -12,7 +12,7 @@ Issue番号はタイトルに必須ではない。関連Issueは本文で紐づ�
 
 ## 関連Issue
 
-<!-- Closes #123。関連Issueがなければその旨を記載 -->
+<!-- 全条件を満たすIssueは Closes #123。一部対応・親Issueは Refs #123。関連なしなら明記 -->
 
 ## 実装内容
 

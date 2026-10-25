@@ -4,10 +4,8 @@
 
 `api/`と`issue.md`を入力側とし、`evaluation/`の正解データは入力へ混ぜません。correct.patchはすべての負数を拒否し、buggy.patchは-1だけを拒否します。どちらも既存テストを通りますが、独立した期待値ではbuggyの-2が不一致になります。
 
-Pythonの横断テストは、これらを一時領域へコピーして差分適用とデータ検査を行います。Nodeがある環境では `node --test` で既存テストを確認し、別プロセスの評価で期待値と照合します。外部接続、課金、GitHub書き込みは行いません。
+## 状態: 旧構成の履歴
 
-```sh
-python3 -B -m unittest discover -s .github/automation -p 'test_parent_acceptance.py' -v
-```
+#64で `.github/automation/` とこのfixtureを使うPython横断テストは削除されました。旧コマンドは現在実行できません。当時の結果・revisionは [旧検証記録](../../docs/ai-development-validation.md) を参照してください。
 
-実Dockerの依存取得・悪意あるinstall scriptの隔離、OpenCodeモックは別に確認が必要です。元実行39779457307の具体的な拒否ファイルは未特定で、このfixtureによる再現済みとは扱いません。
+現行の製品評価には [注文API fixture](../order-api/README.md)、開発ハーネスの確認には [評価手順](../../docs/harness/evaluation.md) を使います。このfixtureを残していることは、現行の実LLM・Docker・元実行39779457307を再現できる保証ではありません。
