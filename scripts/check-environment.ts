@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -10,8 +10,14 @@ const root = new URL('../', import.meta.url);
 const manifest = JSON.parse(
   readFileSync(new URL('package.json', root), 'utf8'),
 ) as { packageManager: string; devDependencies: Record<string, string> };
-const nodeVersion = readFileSync(new URL('.node-version', root), 'utf8').trim();
-const nodeMajor = nodeVersion.split('.')[0];
+let nodeVersion: string | undefined;
+try {
+  const value = readFileSync(new URL('.node-version', root), 'utf8').trim();
+  if (/^\d+(?:\.\d+){0,2}$/.test(value)) nodeVersion = value;
+} catch {
+  // Missing, unreadable, or non-file configuration is an environment problem.
+}
+const nodeMajor = nodeVersion?.split('.')[0];
 const pnpmVersion = manifest.packageManager.replace(/^pnpm@/, '');
 const require = createRequire(new URL('package.json', root));
 const checks: { name: string; ok: boolean; detail: string }[] = [];
@@ -19,7 +25,9 @@ const checks: { name: string; ok: boolean; detail: string }[] = [];
 checks.push({
   name: 'Node.js',
   ok: process.versions.node.split('.')[0] === nodeMajor,
-  detail: `現在 ${process.versions.node} / 必要 ${nodeMajor}.x（推奨 ${nodeVersion}）。異なる場合はNode.jsを切り替えてください。`,
+  detail: nodeVersion
+    ? `現在 ${process.versions.node} / 必要 ${nodeMajor}.x（推奨 ${nodeVersion}）。異なる場合はNode.jsを切り替えてください。`
+    : '.node-versionを読めないか形式が不正です。対象branchの設定ファイルを確認してください。',
 });
 
 try {
@@ -48,10 +56,17 @@ try {
   });
 }
 
+let hasLockfile = false;
+try {
+  hasLockfile = statSync(new URL('pnpm-lock.yaml', root)).isFile();
+} catch {
+  // An absent or inaccessible lockfile must not become a successful diagnosis.
+}
 checks.push({
   name: 'lockfile',
-  ok: existsSync(new URL('pnpm-lock.yaml', root)),
-  detail: 'pnpm-lock.yamlが必要です。対象branchとcheckoutを確認してください。',
+  ok: hasLockfile,
+  detail:
+    '通常ファイルのpnpm-lock.yamlが必要です。対象branchとcheckoutを確認してください。',
 });
 
 const missing = Object.keys(manifest.devDependencies).filter((name) => {
