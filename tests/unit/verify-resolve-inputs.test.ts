@@ -54,6 +54,30 @@ afterEach(() => {
 });
 
 describe('verification input resolution', () => {
+  test('excludes credential locations from tracked and explicit untracked input', () => {
+    const repo = repository();
+    repo.write('.claude/auth.json', 'credential-file-sentinel');
+    repo.write('.env', 'ENV=credential-file-sentinel');
+    repo.write('src/a.ts', 'export const value = 2;');
+    repo.commit('change with unsafe paths');
+    repo.write('.codex/auth.json', 'untracked-credential-sentinel');
+    const snapshot = resolve(repo, { includeUntracked: ['.codex/auth.json'] });
+    expect(JSON.stringify(snapshot)).not.toContain('credential-file-sentinel');
+    expect(JSON.stringify(snapshot)).not.toContain(
+      'untracked-credential-sentinel',
+    );
+    expect(
+      snapshot.diff.excluded.filter((entry) => entry.reason === 'credential'),
+    ).toHaveLength(3);
+    expect(() => resolve(repo, { issueFile: '.claude/auth.json' })).toThrow(
+      '認証情報',
+    );
+    repo.symlink('.claude', 'alias');
+    expect(() => resolve(repo, { issueFile: 'alias/auth.json' })).toThrow(
+      '認証情報',
+    );
+  });
+
   test('resolves committed and uncommitted changes separately', () => {
     const repo = repository();
     repo.write('src/a.ts', 'export const value = 2;\n');

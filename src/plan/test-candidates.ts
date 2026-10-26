@@ -1,7 +1,7 @@
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { sha256 } from '../verify/files.js';
-import { toPosixPath } from '../verify/paths.js';
+import { isCredentialPath, toPosixPath } from '../verify/paths.js';
 import type { ExistingTestCandidate } from './types.js';
 
 const MAX_TEST_FILES = 120;
@@ -108,7 +108,7 @@ function walk(
     if (files.length >= MAX_TEST_FILES) return;
     const absolute = join(directory, entry.name);
     const relativePath = toPosixPath(relative(root, absolute));
-    if (entry.isSymbolicLink()) continue;
+    if (entry.isSymbolicLink() || isCredentialPath(relativePath)) continue;
     if (entry.isDirectory()) {
       if (SKIPPED_DIRECTORIES.has(entry.name)) {
         if (entry.name === 'evaluation' && relativePath.length > 0) {

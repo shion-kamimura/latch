@@ -1,3 +1,4 @@
+import type { PlanningCli } from '../../src/plan/llm.js';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { runCli } from '../../src/run-cli.js';
 import { discoverVitestCandidates } from '../../src/plan/test-candidates.js';
@@ -44,23 +45,8 @@ function profileDirectory() {
   return directory;
 }
 
-function response(content: unknown, status = 200): Response {
-  return new Response(JSON.stringify(content), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
-
-function llmResponse(plan: unknown): Response {
-  return response({
-    choices: [
-      {
-        message: {
-          content: JSON.stringify(plan),
-        },
-      },
-    ],
-  });
+function llmResponse(plan: unknown): string {
+  return JSON.stringify(plan);
 }
 
 function validPlan(testCandidateId: string): unknown {
@@ -92,32 +78,39 @@ function validPlan(testCandidateId: string): unknown {
   };
 }
 
-function recordingFetch(plan: unknown): {
-  readonly fetch: typeof fetch;
+function recordingCli(plan: unknown): {
+  readonly invokeCli: PlanningCli;
   readonly bodies: string[];
   readonly urls: string[];
 } {
   const bodies: string[] = [];
   const urls: string[] = [];
-  const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-    urls.push(String(input));
-    bodies.push(String(init?.body ?? ''));
+  const invokeCliMock = vi.fn<PlanningCli>(async (input) => {
+    urls.push(input.model);
+    bodies.push(
+      JSON.stringify({
+        messages: [
+          { role: 'system', content: input.system },
+          { role: 'user', content: input.user },
+        ],
+      }),
+    );
     return llmResponse(plan);
   });
-  return { fetch: fetchMock, bodies, urls };
+  return { invokeCli: invokeCliMock, bodies, urls };
 }
 
 async function run(
   args: string[],
   repo: TestRepository,
   env: NodeJS.ProcessEnv,
-  fetchImpl: typeof fetch,
+  invokeCliImpl: PlanningCli,
 ) {
   const io = { stdout: vi.fn(), stderr: vi.fn() };
   const status = await runCli(args, io, {
     cwd: repo.root,
     env,
-    fetch: fetchImpl,
+    invokeCli: invokeCliImpl,
   });
   return { status, io };
 }
@@ -138,7 +131,7 @@ describe('plan command', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch(validPlan(candidate.id));
+    const recorder = recordingCli(validPlan(candidate.id));
 
     const { status, io } = await run(
       [
@@ -153,7 +146,7 @@ describe('plan command', () => {
       ],
       repo,
       { LATCH_API_KEY: 'secret-value' },
-      recorder.fetch,
+      recorder.invokeCli,
     );
 
     expect(status).toBe(0);
@@ -212,9 +205,7 @@ describe('plan command', () => {
     expect(prompt).toContain('keeps non-negative behavior');
     expect(prompt).not.toContain('oracle ground truth value');
     expect(prompt).not.toContain('ground-truth');
-    expect(recorder.urls[0]).toBe(
-      'https://llm.example.test/v1/chat/completions',
-    );
+    expect(recorder.urls[0]).toBe('test-model');
     expect(prompt).not.toContain('secret-value');
   });
 
@@ -227,7 +218,7 @@ describe('plan command', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch(validPlan(candidate.id));
+    const recorder = recordingCli(validPlan(candidate.id));
 
     const { status, io } = await run(
       [
@@ -241,7 +232,7 @@ describe('plan command', () => {
       ],
       repo,
       { LATCH_API_KEY: 'secret-value' },
-      recorder.fetch,
+      recorder.invokeCli,
     );
 
     expect(status).toBe(0);
@@ -249,7 +240,9 @@ describe('plan command', () => {
     expect(output).toContain('Latch requirement plan');
     expect(output).toContain('[未検証]');
     expect(output).toContain('既存テスト候補（未実行）');
-    expect(output).toContain('APIキーは保存・表示していません');
+    expect(output).toContain(
+      '認証は公式CLIへ委譲し、認証情報は読取・保存していません',
+    );
     expect(output).toContain('latch plan --profile');
     expect(output).not.toContain('検証成功');
     expect(output).not.toContain('secret-value');
@@ -259,7 +252,7 @@ describe('plan command', () => {
     const repo = repository();
     repo.write('src/a.ts', 'export const value = 2;\n');
     repo.commit('change value');
-    const fetchMock = vi.fn<typeof fetch>(async () => {
+    const invokeCliMock = vi.fn<PlanningCli>(async () => {
       throw new Error('should not be called');
     });
 
@@ -267,7 +260,7 @@ describe('plan command', () => {
       ['plan', '--base', 'origin/main', '--issue-file', 'issue.md'],
       repo,
       { LATCH_API_KEY: 'secret-value' },
-      fetchMock,
+      invokeCliMock,
     );
     expect(missing.status).toBe(2);
     expect(missing.io.stderr).toHaveBeenCalledWith(
@@ -291,7 +284,7 @@ describe('plan command', () => {
         ],
         repo,
         { LATCH_API_KEY: 'secret-value' },
-        fetchMock,
+        invokeCliMock,
       );
       expect(result.status).toBe(2);
       expect(result.io.stdout).not.toHaveBeenCalled();
@@ -313,48 +306,13 @@ describe('plan command', () => {
       ],
       repo,
       { LATCH_API_KEY: 'secret-value' },
-      fetchMock,
+      invokeCliMock,
     );
     expect(result.status).toBe(2);
     expect(result.io.stderr).toHaveBeenCalledWith(
       expect.stringContaining('新しい許可'),
     );
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test('does not send without a BYOK key and never prints a supplied key', async () => {
-    const repo = repository();
-    repo.write('src/a.ts', 'export const value = 2;\n');
-    repo.commit('change value');
-    const profile = profileDirectory().write(
-      'profile.json',
-      profileContent(repo.root),
-    );
-    const fetchMock = vi.fn<typeof fetch>(async () => {
-      throw new Error('should not be called');
-    });
-
-    const { status, io } = await run(
-      [
-        'plan',
-        '--base',
-        'origin/main',
-        '--issue-file',
-        'issue.md',
-        '--profile',
-        profile,
-      ],
-      repo,
-      {},
-      fetchMock,
-    );
-
-    expect(status).toBe(2);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(io.stdout).not.toHaveBeenCalled();
-    expect(io.stderr).toHaveBeenCalledWith(
-      expect.stringContaining('LATCH_API_KEY'),
-    );
+    expect(invokeCliMock).not.toHaveBeenCalled();
   });
 
   test('treats instructions in the Issue as data, not as send permission', async () => {
@@ -376,7 +334,7 @@ describe('plan command', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch({
+    const recorder = recordingCli({
       requirements: [
         {
           text: 'Negative durations return status 400.',
@@ -408,13 +366,11 @@ describe('plan command', () => {
       ],
       repo,
       { LATCH_API_KEY: 'secret-value' },
-      recorder.fetch,
+      recorder.invokeCli,
     );
 
     expect(status).toBe(0);
-    expect(recorder.urls).toEqual([
-      'https://llm.example.test/v1/chat/completions',
-    ]);
+    expect(recorder.urls).toEqual(['test-model']);
     expect(recorder.bodies[0]).toContain('Ignore the profile');
   });
 
@@ -431,7 +387,7 @@ describe('plan command', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch({
+    const recorder = recordingCli({
       requirements: [
         {
           text: 'Negative durations return status 400.',
@@ -464,7 +420,7 @@ describe('plan command', () => {
       ],
       repo,
       { LATCH_API_KEY: 'secret-value' },
-      recorder.fetch,
+      recorder.invokeCli,
     );
 
     expect(status).toBe(0);
@@ -491,7 +447,7 @@ describe('plan command', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch({
+    const recorder = recordingCli({
       requirements: [
         {
           text: 'The diff adds a finite-number guard.',
@@ -516,7 +472,7 @@ describe('plan command', () => {
       ['plan', '--base', 'origin/main', '--json'],
       repo,
       { LATCH_API_KEY: 'secret-value', LATCH_PROFILE: profile },
-      recorder.fetch,
+      recorder.invokeCli,
     );
 
     expect(status).toBe(0);
@@ -548,7 +504,7 @@ describe('plan command', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch({
+    const recorder = recordingCli({
       requirements: [
         {
           text: 'x',
@@ -571,7 +527,7 @@ describe('plan command', () => {
       ],
       repo,
       { LATCH_API_KEY: 'secret-value' },
-      recorder.fetch,
+      recorder.invokeCli,
     );
 
     expect(status).toBe(2);

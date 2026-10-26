@@ -12,7 +12,7 @@ pnpm build
 pnpm exec vitest run --project e2e tests/e2e/evaluation.test.ts
 ```
 
-`tests/e2e/evaluation.test.ts` はビルド済みCLIの `plan` → `run --json` → `run` を実行します。計画JSONを手書きで渡す既存のrun試験とは異なり、入力解決・要件抽出・不足シナリオ・生成・隔離実行・両レポートの接続を確認します。loopbackのHTTPサーバーが固定応答を返し、外部LLMへ通信しません。テスト実行プロセスにはloopback通信の許可が必要です。対象テストの通信は引き続き遮断します。
+`tests/e2e/evaluation.test.ts` はビルド済みCLIの `plan` → `run --json` → `run` を実行します。計画JSONを手書きで渡す既存のrun試験とは異なり、入力解決・要件抽出・不足シナリオ・生成・隔離実行・両レポートの接続を確認します。PATH上の偽の `claude` 実行ファイルが固定応答を返し、外部LLMへ通信しません。公式CLI・アカウントは不要です。対象テストの通信は引き続き遮断します。
 
 | ケース     | 入力                                           | 期待する条件状態            | 期待する証拠・終了コード                   |
 | ---------- | ---------------------------------------------- | --------------------------- | ------------------------------------------ |
@@ -21,7 +21,7 @@ pnpm exec vitest run --project e2e tests/e2e/evaluation.test.ts
 | ambiguous  | correct.patch＋Issue末尾に応答速度の曖昧な要求 | 割引verified、速度ambiguous | 曖昧な条件の証拠なし、要件全体ambiguous、0 |
 | impossible | correct.patch＋終了しない固定生成テスト        | execution-impossible        | timeout、部分結果、2                       |
 
-correctとbuggyは同一リポジトリの同一base・同一Issueを使用します。変更は未コミット差分として適用し、各ケース後に逆パッチで戻します。ambiguous以外は同じIssueです。各ケース1試行で、JSONとテキスト出力用にrunを各1回実行します。1ケース3要求、全体12要求がローカル固定応答サーバーへ送られます。
+correctとbuggyは同一リポジトリの同一base・同一Issueを使用します。変更は未コミット差分として適用し、各ケース後に逆パッチで戻します。ambiguous以外は同じIssueです。各ケース1試行で、JSONとテキスト出力用にrunを各1回実行します。1ケース3要求、全体12要求がローカル固定応答CLIへ送られます。
 
 固定応答はIssueから独立に記述した割引端数のシナリオ1件だけを提案します。正解データ `fixtures/order-api/evaluation/cases.json` は全送信の終了後に評価側だけで読み、99にSAVE10を適用した期待値90と照合します。正解データを応答生成に使用しません。さらに追跡済み・変更済みの `evaluation/cases.json` にsentinelを置き、全要求の本文へ混入しないことを確認します。候補ファイル・未追跡ファイル・Git indexのハッシュ、HEADとstatusを前後比較します。
 
@@ -34,7 +34,7 @@ LATCH_EVALUATION_RECORD=/tmp/order-api-regression.json \
 
 トークン利用量はモックが返さないため取得不能、実API要求数0・費用0 USDです。入力再現用にfixtureのSHA-256も記録します。一時リポジトリのcommitやsnapshot識別子は試行間で変わり得ます。
 
-## 固定応答の実測（2026年10月25日 18:06 JST）
+## 旧HTTP接続の固定応答実測（2026年10月25日 18:06 JST）
 
 Node.js 26.12.1 / pnpm 12.14.0、Linuxで実行しました。基準のLatch commitは `4c5c326d37c949dc5c30c578b215cee147887bb1` で、このPRのindex更新抑止を適用した成果物です。各ケース1試行の記録であり、安定性の統計ではありません。
 
@@ -53,7 +53,7 @@ Node.js 26.12.1 / pnpm 12.14.0、Linuxで実行しました。基準のLatch com
 
 ## 公式CLIによる実利用評価（未実施）
 
-[移行調査と採用条件](official-cli.md) を満たす方式を選んでから実施します。現行コードは旧API接続であり、以下は公式CLI実装後の評価契約です。旧APIキーの設定手順と1 USD予算は廃止し、月額プランへ機械的に適用しません。固定応答の合格やヘルプの確認だけで実利用完了とはしません。
+[公式CLIの対応条件](official-cli.md) を満たす環境と、利用者指定の契約・上限が決まってから実施します。現行コードはClaude Code接続であり、以下は未実施の実利用評価契約です。旧APIキーの設定手順と1 USD予算は廃止し、月額プランへ機械的に適用しません。固定応答の合格やヘルプの確認だけで実利用完了とはしません。
 
 ### 実行前に固定するもの
 
@@ -83,7 +83,7 @@ git -C "$EVAL_ROOT/correct" apply "$LATCH_ROOT/fixtures/order-api/changes/correc
 git -C "$EVAL_ROOT/buggy" apply "$LATCH_ROOT/fixtures/order-api/changes/buggy.patch"
 ```
 
-両候補の `git rev-parse origin/main` とIssueのSHA-256が同じことを確認します。コマンド出力・評価記録は候補ワークツリーの外へ保存します。実行前後で全通常ファイルとGit indexのSHA-256、HEAD、`git --no-optional-locks status --porcelain=v1 --untracked-files=all` を比較し、不変性を確認します。公式CLI用profileとplan/runの具体的な設定は、接続実装の採用時に確定します。
+両候補の `git rev-parse origin/main` とIssueのSHA-256が同じことを確認します。コマンド出力・評価記録は候補ワークツリーの外へ保存します。実行前後で全通常ファイルとGit indexのSHA-256、HEAD、`git --no-optional-locks status --porcelain=v1 --untracked-files=all` を比較し、不変性を確認します。公式CLI用のversion 2 profileとplan/runは [要件計画](requirement-planning.md#許可profile) を参照してください。
 
 ### 正解との照合と記録
 
@@ -102,4 +102,4 @@ git -C "$EVAL_ROOT/buggy" apply "$LATCH_ROOT/fixtures/order-api/changes/buggy.pa
 
 ## 現在の未達
 
-公式CLIの採用・接続実装・CLI固定応答テスト・実利用評価は未完了です。上のHTTP固定応答と [2026-10-25の評価記録](evaluations/order-api-fixed-2026-10-25.json) は旧接続での回帰テストであり、公式CLIの接続・安全境界・生成品質を実証しません。#81で引き継ぎ、実利用未実施や条件未達のまま完了扱いにしません。
+公式CLIの採用・接続実装・CLI固定応答テストを実装しました。旧HTTPの [2026-10-25記録](evaluations/order-api-fixed-2026-10-25.json) は履歴として残します。現在のCLI固定応答回帰と、未改変バイナリの未ログイン起動確認は別です。実アカウントによる全工程・敵対的入力・生成品質・利用量の評価は未実施で、利用者の契約と上限の指定待ちです。#81で引き継ぎ、実利用未実施や条件未達のまま完了扱いにしません。

@@ -4,7 +4,7 @@ Latchは、AIが生成したコードをGitHub IssueやPRの要件と照合し�
 
 現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）、`latch plan` による要件抽出・既存Vitestテスト候補と不足シナリオの計画、`latch run` によるVitestテスト生成・隔離実行・実行証拠の収集と、要件→テスト→証拠を対応づけたテキスト／JSONレポートを提供しています。Markdownファイル出力・CI連携・GitHub PR投稿はまだ実装していません。
 
-製品は既存の公式ツール・標準機能を優先し、自前実装と資格情報管理を減らす方針です。責務の分担は [製品方針](docs/product-vision.md#自前実装を最小化する原則) を参照してください。[#81の公式CLI移行](docs/official-cli.md) は調査中で、現行のBYOK接続はまだ残っています。公式CLI対応済みとは扱いません。
+製品は既存の公式ツール・標準機能を優先し、自前実装と資格情報管理を減らす方針です。責務の分担は [製品方針](docs/product-vision.md#自前実装を最小化する原則) を参照してください。[#81の公式CLI接続](docs/official-cli.md) はClaude Code 2.1.310に対応します。初回の対応環境と実利用評価の未実施を参照してください。
 
 ## 使用技術
 
@@ -78,7 +78,7 @@ pnpm build
 pnpm exec vitest run --project e2e tests/e2e/evaluation.test.ts
 ```
 
-Node.js 26、リポジトリの開発依存、loopback通信が必要です。固定応答の合格から抽出・生成品質やAPI全体の正しさを保証しません。旧BYOK方式での実API評価は取りやめ、公式CLIでの実利用評価を #81 へ引き継ぎます。採用条件、契約と利用上限、誤検出・見逃し・未検証の記録方法は上記手順を参照してください。
+Node.js 26、リポジトリの開発依存が必要です。固定応答テストに公式CLIやログインは不要です。固定応答の合格から抽出・生成品質やAPI全体の正しさを保証しません。旧BYOK方式での実API評価は取りやめ、公式CLIでの実利用評価を #81 へ引き継ぎます。採用条件、契約と利用上限、誤検出・見逃し・未検証の記録方法は上記手順を参照してください。
 
 ## ビルドとCLIの実行
 
@@ -109,9 +109,9 @@ node dist/cli.mjs plan --base origin/main --issue-file fixtures/order-api/issue.
 
 `plan` は `verify` と同じ入力スナップショットから、要件・条件、出典（Issue明示または差分推定）、既存のVitestテスト候補、不足シナリオを計画します。期待値を確定できない条件は「要件不明確」として残し、テスト候補と実行証拠を区別します。対象コード・設定・テストは実行せず、#22の評価専用テスト・正解データはLLM入力から除外します。
 
-送信にはワークツリー外の利用者管理の許可profileと、環境変数（既定は `LATCH_API_KEY`）のBYOKキーが必要です。許可profileはprovider・endpoint・project・データ区分を検証し、同一範囲は追加確認なしに再利用します。拒否・取り消し・範囲拡大・非対話の許可不足では送信せず終了コード2を返します。APIキーはprofile・ログ・レポートへ保存しません。認証失敗・タイムアウト・利用上限・不正なLLM応答は上限内で停止します。
+送信にはワークツリー外の利用者管理のversion 2許可profileと、公式CLIでのログインが必要です。初回はClaude Code 2.1.310・Linux（WSL以外）・Pro/Maxアカウント・管理者設定のない環境に限定します。`claude auth login` は利用者が公式CLIで行ってください。Latchはキーやトークンを要求・読取・保存・コピーせず、ログインと通信を公式CLIへ委譲します。profileはprovider・project・データ区分を検証し、拒否・取り消し・範囲拡大・対応条件の不一致では推論前に停止します。旧version 1、endpoint、apiKeyEnvは移行案内付きで拒否し、API接続へ戻りません。設定例は [要件計画](docs/requirement-planning.md#許可profile)、公式情報と権限制限は [公式CLI接続](docs/official-cli.md) を参照してください。
 
-自動テストは固定したLLM応答を使い、実APIでの抽出品質は評価していません。テスト生成・実行・証拠収集は `latch run` で実装し、隔離方式・安全境界・依存準備・通信制御・状態の区別は [生成テストの隔離実行と証拠収集](docs/isolated-execution.md) を参照してください。利用方法・許可profile・データ契約・確認と再計画の手順は [要件抽出と検証シナリオ計画](docs/requirement-planning.md) を参照してください。
+自動テストは固定したLLM応答を使い、実ログインでの抽出品質は評価していません。テスト生成・実行・証拠収集は `latch run` で実装し、隔離方式・安全境界・依存準備・通信制御・状態の区別は [生成テストの隔離実行と証拠収集](docs/isolated-execution.md) を参照してください。利用方法・許可profile・データ契約・確認と再計画の手順は [要件抽出と検証シナリオ計画](docs/requirement-planning.md) を参照してください。
 
 ### 不足テストを生成して隔離実行する
 

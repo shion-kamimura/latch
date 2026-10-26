@@ -20,7 +20,9 @@ describe('planning prompt', () => {
     );
 
     expect(prompt.truncated).toBe(true);
-    expect(prompt.user.length).toBeLessThanOrEqual(2_000);
+    expect(prompt.system.length + prompt.user.length).toBeLessThanOrEqual(
+      2_000,
+    );
     expect(prompt.user).toContain('<<<ISSUE');
     expect(prompt.user).toContain('<<<DIFF');
     expect(prompt.system).toContain('untrusted data');

@@ -24,6 +24,7 @@ const evidenceLabels: Record<EvidenceStatus, string> = {
 };
 
 const exclusionLabels = {
+  credential: '認証情報のパス',
   binary: 'バイナリ',
   symlink: 'シンボリックリンク',
   submodule: 'submodule',

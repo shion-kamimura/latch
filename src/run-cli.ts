@@ -1,3 +1,4 @@
+import type { PlanningCli } from './plan/llm.js';
 import { getHelp } from './help.js';
 import { getVersion } from './version.js';
 import { parsePlanArgs } from './plan/args.js';
@@ -15,7 +16,7 @@ import { resolveVerificationInputs } from './verify/resolve-inputs.js';
 export interface RunEnvironment {
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
-  readonly fetch?: typeof fetch;
+  readonly invokeCli?: PlanningCli;
 }
 
 function verifyCommand(
@@ -66,7 +67,7 @@ async function planCommand(
     const plan = await planRequirements(options, {
       cwd: environment.cwd ?? process.cwd(),
       env: environment.env ?? process.env,
-      fetch: environment.fetch ?? fetch,
+      invokeCli: environment.invokeCli,
     });
     for (const warning of plan.warnings) {
       io.stderr(`latch: 警告: ${warning}\n`);
@@ -104,7 +105,7 @@ async function runCommand(
     const report = await runVerification(options, {
       cwd: environment.cwd ?? process.cwd(),
       env: environment.env ?? process.env,
-      fetch: environment.fetch ?? fetch,
+      invokeCli: environment.invokeCli,
     });
     for (const warning of report.warnings) {
       io.stderr(`latch: 警告: ${warning}\n`);

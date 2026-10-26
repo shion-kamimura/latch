@@ -13,6 +13,7 @@ import {
 import { readIssueFile, readUntrackedFile, sha256 } from './files.js';
 import {
   isGitInternalPath,
+  isCredentialPath,
   isInside,
   relativeToRoot,
   resolveFrom,
@@ -34,6 +35,7 @@ function statusLabel(status: string): string {
 }
 
 function exclusionReason(entry: DiffCommandEntry): ExclusionReason | null {
+  if (isCredentialPath(entry.path)) return 'credential';
   if (!entry.path || isGitInternalPath(entry.path)) return 'git-internal';
   if (entry.oldMode === '120000' || entry.newMode === '120000') {
     return 'symlink';
@@ -130,6 +132,14 @@ function resolveUntracked(
     if (seen.has(relativePath)) continue;
     seen.add(relativePath);
 
+    if (isCredentialPath(relativePath)) {
+      excluded.push({
+        path: relativePath,
+        kind: 'untracked',
+        reason: 'credential',
+      });
+      continue;
+    }
     if (isGitInternalPath(relativePath)) {
       excluded.push({
         path: relativePath,

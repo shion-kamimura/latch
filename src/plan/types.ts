@@ -1,3 +1,4 @@
+import type { PlanningCli } from './llm.js';
 import type {
   ChangedFile,
   ExcludedFile,
@@ -59,7 +60,7 @@ export interface ExistingTestCandidate {
 export interface PlanningLimits {
   readonly maxRequests: number;
   readonly timeoutMs: number;
-  readonly maxOutputTokens: number;
+  readonly maxOutputBytes: number;
   readonly maxInputCharacters: number;
 }
 
@@ -88,15 +89,12 @@ export interface PlanningProfile {
   readonly decision: 'allowed' | 'denied' | 'revoked';
   readonly allowed: {
     readonly provider: string;
-    readonly endpoint: string;
     readonly project: string;
     readonly dataCategories: readonly DataCategory[];
   };
   readonly connection: {
     readonly provider: string;
-    readonly endpoint: string;
     readonly model: string;
-    readonly apiKeyEnv: string;
   };
   readonly limits: PlanningLimits;
   readonly execution?: ExecutionSettings;
@@ -105,7 +103,6 @@ export interface PlanningProfile {
 
 export interface PlanningScope {
   readonly provider: string;
-  readonly endpoint: string;
   readonly project: string;
   readonly dataCategories: readonly DataCategory[];
 }
@@ -142,7 +139,6 @@ export interface RequirementPlan {
     readonly profileId: string;
     readonly profilePath: string;
     readonly provider: string;
-    readonly endpoint: string;
     readonly project: string;
     readonly dataCategories: readonly DataCategory[];
   };
@@ -173,7 +169,7 @@ export interface PlanOptions {
 export interface PlanEnvironment {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
-  readonly fetch: typeof fetch;
+  readonly invokeCli?: PlanningCli;
 }
 
 export type { VerificationInputSnapshot };

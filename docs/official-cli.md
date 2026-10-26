@@ -1,59 +1,75 @@
-# 公式CLIへの移行調査（#81）
+# 公式CLI接続（#81）
 
-状態: 調査中・接続置換は未実装。[Issue #81](https://github.com/shion-kamimura/latch/issues/81) の完了記録ではない。2026-10-26、main `3ac17e0` を基準に確認した。旧API接続は現行コードに残り、公式CLIの採用・旧設定の拒否・CLI固定応答への置換・実利用評価は未完了である。
+状態: 接続置換・固定応答回帰を実装。公式CLIでの実アカウント評価は未実施。[Issue #81](https://github.com/shion-kamimura/latch/issues/81) は実利用評価が終わるまで完了しない。2026-10-26、main `3ac17e0` を基準に調査・実装した。
 
-## 責務と採用条件
+## 採用した方式と対応条件
 
-[製品方針](product-vision.md#自前実装を最小化する原則) に従い、認証・通信・資格情報管理・非対話のモデル実行を公式ツールへ委譲する。Latchは入力の固定と送信許可、生成結果と出典の検証、隔離実行、要件・テスト・証拠のレポートを持つ。JSON出力が得られても、Latch固有の出典・条件ID・証拠の妥当性はLatchで検証する必要がある。
+初回は **未改変のClaude Code 2.1.310** をローカルの子プロセスとして呼ぶ。LatchはCLIを自動インストールせず、ログインも実装しない。利用者が公式の `claude auth login` を行い、信頼した `claude` をPATHへ置く。Latchは公開された `claude auth status` の結果を使い、認証ファイルを探索・読取・コピーしない。
 
-採用前に、ログインを利用したまま不要なファイル読取・編集・コマンド・ネットワーク・ツールを制限できることを確認する。正解データや資格情報を渡さず、対象ワークツリーを変更しない。プロンプトの禁止文だけでは採用条件を満たさない。認証ファイルの探索・読取・コピー、独自認証、非公開API、ブラウザ自動ログイン、APIキーへのフォールバックは実装しない。
+初回の対応範囲は、Linux（WSL以外）・絶対パスのHOME・標準の `HOME/.claude` 設定ディレクトリ・Anthropic first-party接続・ProまたはMaxのClaudeアカウントへのログインに限定する。版・認証方式・アカウント種別・接続先・設定ディレクトリが一致しない場合や、必要な状態が欠ける場合はモデル要求を送らず停止する。Team/Enterprise・macOS・Windows・WSL・gateway・環境変数のトークン/APIキーによる接続は初回対象外である。
 
-## 公式情報と比較
+管理者設定の制約は、未対応環境を拒否することで扱う。
 
-以下は2026-10-26に取得した公式資料と、導入済みまたは調査用に導入した未改変CLIのヘルプに基づく。ドキュメントの将来の変更や別バージョンへ結果を一般化しない。
+- CLIの起動前に `/etc/claude-code` と `HOME/.claude/remote-settings.json` のメタデータだけを調べ、存在すれば停止する。空ディレクトリ、空・不正なキャッシュ、シンボリックリンクでも拒否する。読取権限等で有無を確認できない場合も停止する。管理者設定の内容や資格情報は読まない。
+- CLIの状態確認後も同じ配置先を再確認する。`auth status`が返す `subscriptionType` は `pro` / `max` だけを受け付け、欠落・未知値は拒否する。
+- 公式仕様ではサーバー管理設定はTeam/Enterprise向けである。端末側の管理設定を拒否し、さらにサーバー管理設定の対象アカウントを除くことで、ログインを維持したまま対応範囲を定める。管理設定を削除・上書きしたり、回避用の別HOMEへ資格情報を移したりしない。
+- 信頼したホスト・CLI・PATHを前提とする。ホスト管理者による実行中の設定変更やCLIの改ざんを防ぐOSサンドボックスではない。対応条件を広げる際は公式仕様と起動確認を更新する。
 
-| 項目         | Codex CLI                                                                                                                         | Claude Code                                                                                                          |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 確認版       | 環境の `codex-cli 0.163.0`                                                                                                        | 調査用 `2.1.310 (Claude Code)`                                                                                       |
-| 非対話       | `codex exec`、stdin、`--ephemeral`                                                                                                | `claude -p`、stdin、`--no-session-persistence`                                                                       |
-| 構造化出力   | `--output-schema` と `--json`                                                                                                     | `--json-schema` と `--output-format json`、`structured_output`                                                       |
-| 制御候補     | read-only sandbox、`--ignore-user-config`、`--ignore-rules`、`features.shell_tool`、web search等の設定                            | `--tools ""`、`--disallowedTools "*"`、`--strict-mcp-config`、`--restricted`、`--safe-mode`                          |
-| 未解決の境界 | read-onlyは読取禁止ではなく、シェル無効化も全ツールの無効化とは同義でない。モデルが持つ編集ツール等も含めた有効な権限の実証が必要 | managed hooks等は通常の無効化を越えて残る。`--bare`はOAuthログインを利用しないため、本件のログイン委譲とは両立しない |
-| 今回の判断   | 未採用                                                                                                                            | 全ツール無効化が明示されるため先に調査したが、管理者設定を含む境界が未実証のため未採用                               |
+## 一次情報・比較・採用理由
 
-Codexの公式資料:
+| 項目               | Codex CLI                                                                           | Claude Code                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 確認版             | 環境の0.163.0                                                                       | 採用版2.1.310                                                                                                     |
+| 非対話・構造化出力 | `exec`、`--output-schema`、`--json`                                                 | `-p`、`--json-schema`、`--output-format json`                                                                     |
+| 制御               | read-only sandbox、シェル・検索等の設定。シェル停止だけで全ツール停止とは判断しない | 組み込みツールを空集合へ限定し、MCPを別に拒否できる。設定・フック・コンテキストの自動読込も公式フラグで制限できる |
+| 初回判断           | 今回は実装しない                                                                    | 必要な機能と対応条件が公式情報から定められるため採用                                                              |
 
-- [認証と契約](https://developers.openai.com/codex/auth)
-- [非対話実行](https://developers.openai.com/codex/noninteractive)
-- [CLI参照](https://developers.openai.com/codex/cli/reference)
-- [設定参照](https://developers.openai.com/codex/config-reference)
-- [公式ソースのツール構成](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/spec_plan.rs): 調査時点のmainではシェルの登録と、モデルの能力によるApplyPatch登録が別である。環境の0.163.0と同一revisionの実測ではないため、この読取だけで同版の権限を確定しない。
+Claude Codeの公式資料（2026-10-26確認）:
 
-Claude Codeの公式資料:
+- [採用版の公開配布物](https://www.npmjs.com/package/@anthropic-ai/claude-code/v/2.1.310): 導入版のversion/helpと状態出力の契約を確認する。
 
-- [CLI参照](https://code.claude.com/docs/en/cli-reference): `--tools`は組み込みツールを限定する。MCPは別に限定する必要がある。`--safe-mode`でもpolicy-configured hooks等が残る。
-- [非対話実行と構造化出力](https://code.claude.com/docs/en/headless)
-- [認証](https://code.claude.com/docs/en/authentication): 利用者の公式ログインと認証方式の優先順位。`claude auth status`が返す状態はキーの存在と区別する。
-- [disableAllHooks](https://code.claude.com/docs/en/settings-reference#disableallhooks): 「Only managed settings can disable managed hooks.」利用者側の設定で全フックを停止したとは扱わない。
-- [法的条件と資格情報の利用](https://code.claude.com/docs/en/legal-and-compliance): 未改変バイナリを利用者自身の契約で使う場合と、第三者製品が利用者に代わって月額資格情報で要求を中継する場合を区別する。ログイン機能の提供やトークンの収集・中継は行わない。
+- [CLI参照](https://code.claude.com/docs/en/cli-reference): `--tools ""`で組み込みツールを無効化する。MCPは別のため `--disallowedTools mcp__*` と空の厳格MCP設定を併用する。
+- [非対話・構造化出力](https://code.claude.com/docs/en/headless): JSON Schemaに対応する `structured_output` を返す。本文のJSON解析とLatchの出典・条件ID検証は別に必要。
+- [認証](https://code.claude.com/docs/en/authentication): ログインと公式状態確認。採用版の状態出力は公開配布バイナリで確認し、利用する非秘密の状態フィールドが欠ければ停止する。
+- [管理設定の配置先](https://code.claude.com/docs/en/managed-settings#where-each-mechanism-stores-the-policy): Linuxの端末管理設定は `/etc/claude-code` 配下。WSLにはWindowsの設定を継承する場合があるため初回は除く。
+- [サーバー管理設定](https://code.claude.com/docs/en/server-managed-settings): Team/Enterpriseが対象。キャッシュは `~/.claude/remote-settings.json`。
+- [disableAllHooks](https://code.claude.com/docs/en/settings-reference#disableallhooks): 利用者設定ではmanaged hooksを止められない。`--safe-mode`でも管理者フックは残るため、上記の対応条件を強制する。
+- 採用版の `--help`: `--bare`はOAuth/keychainを利用しない。そのためログインを使う本方式では採用しない。`--safe-mode`は認証を維持してカスタマイズを無効化する。
+- [法的条件と資格情報の利用](https://code.claude.com/docs/en/legal-and-compliance): 利用者が未改変CLIへ自分の契約でログインする場合と、第三者が利用者の資格情報で要求を中継する場合を区別する。Latchはログイン機能を提供せず、トークンの収集・中継、再販、ホスト型の共有接続を実装しない。各利用者は実行形態を適用される契約と照合する。Pro/Maxに技術的に対応することは、あらゆる月額利用を許諾するという意味ではない。
 
-月額プランでの一般利用が許可されるとは断定しない。採用する方式・実行主体・契約・利用上限を公式条件と照合し、解消できない場合は提供元への確認を必要とする。利用者の契約変更や管理者設定の変更は本実装の範囲に含めない。
+Codexの比較資料: [認証](https://developers.openai.com/codex/auth)、[非対話実行](https://developers.openai.com/codex/noninteractive)、[CLI参照](https://developers.openai.com/codex/cli/reference)、[設定参照](https://developers.openai.com/codex/config-reference)。Codexの実現不可能性を判断したものではない。今回は2つの接続層を同時に持たず、Claude Codeだけを実装する。
 
-## 実施した確認と限界
+## 境界と責務
 
-- `codex --version`・`codex exec --help`、Claude Code 2.1.310の `--version`・`--help` で上記の非対話・権限制御のフラグを確認した。モデル要求は送っていない。
-- Claude Codeを対象リポジトリ外の空の作業ディレクトリ、調査用の空のHOMEで起動し、`--restricted --setting-sources '' --settings '{"disableAllHooks":true}' auth status` が `loggedIn: false`・`authMethod: none` を返すことを確認した。実アカウントの認証ファイルは読んでいない。
-- managed hooksが残ることと、`--bare`がOAuth/keychainを読まないことを公式資料・ヘルプで確認した。ログインと必要な制限を同時に満たす実利用は確認していない。
-- CLI呼び出しと固定応答の試作は採用していない。試作のテスト結果を現行製品の保証や公式CLIの権限検証として扱わない。
+[製品方針](product-vision.md#自前実装を最小化する原則) に従い、公式CLIが認証・通信・資格情報の保存と更新・モデル実行・構造化出力を担う。Latchは送信許可・入力の固定・結果と出典の検証・テストの隔離実行・証拠レポートを担う。Latch固有のデータ契約は公式JSON出力だけでは代替できないため維持する。子プロセスの期限・出力上限・キャンセルとグループ終了はLatchの実行契約なので、標準のNode.js spawnで最小限の呼び出し層を持つ。認証更新・HTTP再試行・モデル出力の構造化は再実装しない。
 
-Node.js 26.12.0・pnpm 12.14.0で `pnpm install --frozen-lockfile` を完了した。初期の通常サンドボックスではproxy接続と子プロセス実行が失敗したが、実行プラットフォームの明示的な権限指定で調査を続けた。これは製品CLIへ追加権限を与える設計判断ではない。
+モデル用CLIは対象リポジトリ外の空の一時ディレクトリで実行する。要件抽出には許可済みIssue・除外後の差分・テスト候補だけをstdinへ渡し、生成には計画済み条件と差分・候補、修復には対象の生成コードと切り詰めた実行エラーを渡す。プロジェクト全体をCLIに渡さない。
 
-## 再開条件と残作業
+- `--safe-mode --restricted --setting-sources '' --settings '{"disableAllHooks":true}'`でユーザー/プロジェクト設定、フック、メモリや指示ファイル等の自動読込を制限する。管理設定はこれらのフラグで消せると仮定せず、対応条件で拒否する。
+- `--tools '' --disallowedTools 'mcp__*' --strict-mcp-config --mcp-config '{"mcpServers":{}}'`でモデルへファイル読取・編集・シェル・Web等の権限を与えない。構造化出力用の `StructuredOutput` だけは必要な機能として残す。
+- `--disable-slash-commands --permission-mode dontAsk --no-session-persistence --max-turns 1`を使用する。権限の追加承認や再開セッションは使わない。CLI組み込みのプラグイン・認証通信・テレメトリ等は、モデルに与える操作権限とは区別する。
+- 環境変数はHOME・PATH・言語・一時領域・標準proxy/CA設定に限定する。APIキー・OAuthトークン変数・NODE_OPTIONS・provider overrideを継承しない。HOMEは公式CLIが自分でログインを解決するためにだけ使い、対象テストには別の空HOMEを渡す。
+- 既知の認証パス（`.claude/`、`.codex/`、`.env*`、鍵等）を差分・明示した未追跡ファイル・テスト候補・隔離コピーから除外し、Issue入力にも使わせない。正解データの除外は維持する。これはパスによる除外で、ソースやIssueへ埋め込まれた任意の秘密を自動検知する機能ではない。送信入力には秘密を含めない。
 
-1. 公式ログインと必要な権限制限を両立する方式を1つ選び、対応版を固定する。ユーザー設定・プロジェクト設定・管理者設定・フック・MCP・プラグインを含む有効な権限を検証し、必要な境界を確保できなければ採用しない。管理者設定や認証を迂回しない。
-2. 採用版の実バイナリで、入力にファイル読取・編集・コマンド実行・通信を要求しても実行されないことを確認する。送信済みの明示入力以外を収集せず、正解データ非送信・ワークツリー不変・対象テストへの資格情報非継承を検証する。
-3. 最小の呼び出し層を実装し、旧HTTP接続・キー解決・API専用設定を削除する。旧profileは移行案内付きで拒否する。CLI未導入・未ログイン・不正出力・利用上限・タイムアウト・キャンセルを区別し、生のエラーや資格情報を出力しない。
-4. CLIの固定応答で、要件抽出から隔離実行・テキスト/JSONレポートまでを検証する。Latchの要求上限、CLI内部の再試行・構造化出力用要求、プロセス全体の期限と子プロセス終了を区別して記録する。
-5. 利用者指定のCLI・契約・要求数・時間・利用量上限を確認してから、[全工程の評価手順](order-api-evaluation.md) の実利用評価を実施する。旧1 USD API予算は流用しない。現在は指定待ちで、実モデル要求は0件。
+## 上限・失敗・移行
 
-全条件を満たすまでは #81 を完了・自動closeしない。次回はIssue・この比較・最新default branch・`git status --short` を確認し、依存を準備する。この変更は文書のみで、接続実装・テスト・認証・Secrets・契約・管理者設定を変更していない。
+profileは [version 2](requirement-planning.md#許可profile)。version 1と `endpoint` / `apiKeyEnv` は移行案内付きで拒否し、製品のHTTP接続とAPIキー解決は削除した。API方式へのフォールバックはない。
+
+`maxRequests`はplan/runそれぞれのLatchによるCLI推論起動数の上限（1〜3）。planは1回、runは生成と修復の合計を数え、上限到達後は修復を追加しない。CLI内部のHTTP要求や構造化出力処理の回数と同義ではなく、利用量・費用の保証でもない。Latchは自動再試行しない。各起動の期限（1,000〜120,000ms）は版・認証確認も含む。入出力も制限し、タイムアウト・キャンセル・出力超過でプロセスグループを終了し一時領域を削除する。
+
+CLI未導入、版や対応環境の不一致、未ログイン、認証失敗、利用上限、不正JSON/構造化出力、タイムアウト、キャンセルを区別して終了コード2で停止する。未知の失敗を推測で分類せず汎用の実行失敗にする。生のstdout/stderrやアカウント情報をエラーへ出さない。
+
+## 検証と未実施の評価
+
+通常テストは偽の `claude` 実行ファイルの固定応答を使い、実アカウントを使わず、同じプロセス境界を通す。correct/buggy・曖昧な要件・実行不能について、計画から隔離実行・両レポートまで確認する。これは実モデルの品質評価ではない。
+
+未改変の公式CLIの起動確認は別に実行する:
+
+```sh
+LATCH_OFFICIAL_CLI=/absolute/path/to/claude \
+  pnpm exec vitest run --project integration tests/integration/official-cli-startup.test.ts
+```
+
+このテストは新しい空HOMEを作り、実認証情報を使わない。ユーザー/プロジェクトのフックを仕込み、本番と同じ制限引数で有効ツールが `StructuredOutput` のみ、MCPなし、フック未実行、未ログイン停止であることを調べる。2026-10-26に2.1.310で成功した。組み込みプラグインが列挙されても、それらをモデルの操作ツールとして許可するものではない。通常CIは公式CLIの導入を要求せず、この任意テストをskipする。
+
+実アカウントでのplan/run・敵対的入力への動作・生成品質・利用量の評価は、利用者指定のCLI・契約・要求数・時間・利用量上限が決まってから [全工程の評価手順](order-api-evaluation.md) で行う。旧1 USD API予算は流用しない。現在は指定待ち、実モデル要求0件。#81はこの未検証事項を残し、完了・自動closeしない。

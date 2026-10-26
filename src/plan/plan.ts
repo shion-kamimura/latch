@@ -3,11 +3,7 @@ import { resolveVerificationInputs } from '../verify/resolve-inputs.js';
 import { RequirementPlanError } from './errors.js';
 import { callPlanningLlm } from './llm.js';
 import { normalizeLlmResponse } from './normalize.js';
-import {
-  authorizePlanningScope,
-  loadPlanningProfile,
-  resolveApiKey,
-} from './profile.js';
+import { authorizePlanningScope, loadPlanningProfile } from './profile.js';
 import { buildPlanningPrompt, type PromptContext } from './prompt.js';
 import {
   discoverVitestCandidates,
@@ -235,11 +231,9 @@ export async function planRequirements(
 
   authorizePlanningScope(profile, {
     provider: profile.connection.provider,
-    endpoint: profile.connection.endpoint,
     project: snapshot.repository.root,
     dataCategories: categories,
   });
-  const apiKey = resolveApiKey(profile, environment.env);
 
   const prompt = buildPlanningPrompt(
     promptContext.context,
@@ -247,10 +241,10 @@ export async function planRequirements(
   );
   const llm = await callPlanningLlm({
     profile,
-    apiKey,
     system: prompt.system,
     user: prompt.user,
-    fetch: environment.fetch,
+    invokeCli: environment.invokeCli,
+    env: environment.env,
   });
   const normalized = normalizeLlmResponse(llm.content, {
     issuePath: snapshot.issue?.path ?? null,
@@ -313,7 +307,6 @@ export async function planRequirements(
       profileId: profile.id,
       profilePath: profile.path,
       provider: profile.connection.provider,
-      endpoint: profile.connection.endpoint,
       project: snapshot.repository.root,
       dataCategories: categories,
     },

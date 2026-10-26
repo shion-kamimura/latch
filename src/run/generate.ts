@@ -1,3 +1,4 @@
+import type { PlanningCli } from '../plan/llm.js';
 import { RequirementPlanError } from '../plan/errors.js';
 import { callPlanningLlm } from '../plan/llm.js';
 import { buildPromptContext } from '../plan/plan.js';
@@ -33,8 +34,8 @@ export interface GenerationResult {
 
 export interface GenerationContext {
   readonly profile: PlanningProfile;
-  readonly apiKey: string;
-  readonly fetch: typeof fetch;
+  readonly invokeCli?: PlanningCli;
+  readonly env: NodeJS.ProcessEnv;
   readonly snapshot: VerificationInputSnapshot;
   readonly runPlan: RunPlanInput;
 }
@@ -248,10 +249,11 @@ export async function generateTests(
   const prompt = promptSections(context, conditions);
   const response = await callPlanningLlm({
     profile: context.profile,
-    apiKey: context.apiKey,
+    output: 'tests',
     system: SYSTEM_PROMPT,
     user: prompt,
-    fetch: context.fetch,
+    invokeCli: context.invokeCli,
+    env: context.env,
   });
   const tests = parseTests(
     response.content,
@@ -281,7 +283,7 @@ export async function repairGeneratedTest(
     context.profile.execution?.limits.maxGeneratedFileBytes ?? 100_000;
   const response = await callPlanningLlm({
     profile: context.profile,
-    apiKey: context.apiKey,
+    output: 'tests',
     system: SYSTEM_PROMPT,
     user: [
       '## Repair one generated Vitest test',
@@ -311,7 +313,8 @@ export async function repairGeneratedTest(
       errorLog.slice(0, MAX_ERROR_LOG),
       '```',
     ].join('\n'),
-    fetch: context.fetch,
+    invokeCli: context.invokeCli,
+    env: context.env,
   });
   const parsed = parseTests(
     response.content,

@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { VerificationInputError } from './errors.js';
-import { isInside, realPathOrNull, relativeToRoot } from './paths.js';
+import {
+  isInside,
+  isCredentialPath,
+  realPathOrNull,
+  relativeToRoot,
+} from './paths.js';
 
 export function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
@@ -75,6 +80,13 @@ export function readIssueFile(
     );
   }
 
+  if (isCredentialPath(relativeToRoot(root, absolutePath))) {
+    throw new VerificationInputError(
+      '認証情報のパスはIssue入力に使用できません。',
+      '認証情報を含まないMarkdownファイルを指定してください。',
+    );
+  }
+
   let stats;
   try {
     stats = lstatSync(absolutePath);
@@ -103,6 +115,13 @@ export function readIssueFile(
     throw new VerificationInputError(
       'Issueファイルがリポジトリ境界外を指しています。',
       'リポジトリ内の通常ファイルを --issue-file <path> に指定してください。',
+    );
+  }
+
+  if (isCredentialPath(relativeToRoot(root, realPath))) {
+    throw new VerificationInputError(
+      '認証情報のパスはIssue入力に使用できません。',
+      '認証情報を含まないMarkdownファイルを指定してください。',
     );
   }
 

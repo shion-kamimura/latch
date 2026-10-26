@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { defaultExecutionSettings } from '../../src/plan/profile.js';
 import type { ExecutionSettings } from '../../src/plan/types.js';
 import { executeSuite } from '../../src/run/execute.js';
@@ -48,6 +48,34 @@ afterEach(() => {
 });
 
 describe('isolated suite execution', () => {
+  test('does not pass official CLI credentials or HOME to generated tests', () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'do-not-inherit');
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'do-not-inherit');
+    vi.stubEnv('LATCH_API_KEY', 'do-not-inherit');
+    try {
+      const workspace = workspaceWithRunner(null);
+      writeFileSync(
+        workspace.runnerPath,
+        `
+        if (['ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN','LATCH_API_KEY'].some(key => process.env[key] !== undefined) || process.env.HOME !== ${JSON.stringify(join(workspace.root, 'home'))}) console.log('CREDENTIAL_LEAK');
+        else console.log('CREDENTIALS_NOT_FORWARDED');
+      `,
+      );
+      const result = executeSuite({
+        workspace,
+        settings: settingsWithTimeout(1000),
+        include: ['tests/sample.test.ts'],
+        name: 'credential-check',
+        kind: 'generated',
+        conditionIdsByTest: () => [],
+      });
+      expect(result.evidence[0]?.log).toContain('CREDENTIALS_NOT_FORWARDED');
+      expect(result.evidence[0]?.log).not.toContain('CREDENTIAL_LEAK');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   test('kills the child process at the time limit and records a timeout', () => {
     const workspace = workspaceWithRunner('setTimeout(() => {}, 10_000);\n');
     const result = executeSuite({

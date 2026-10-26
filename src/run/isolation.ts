@@ -1,3 +1,4 @@
+import { isCredentialPath } from '../verify/paths.js';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -155,7 +156,10 @@ function pruneEvaluationArtifacts(workDir: string): {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const absolute = join(directory, entry.name);
       const relativePath = toPosixPath(relative(workDir, absolute));
-      if (isEvaluationArtifactPath(relativePath)) {
+      if (
+        isEvaluationArtifactPath(relativePath) ||
+        isCredentialPath(relativePath)
+      ) {
         excluded.push(relativePath);
         removed += 1;
         rmSync(absolute, { recursive: true, force: true });

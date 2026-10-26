@@ -1,3 +1,4 @@
+import type { PlanningCli } from '../plan/llm.js';
 import type {
   ChangedFile,
   ExcludedFile,
@@ -21,7 +22,7 @@ export interface RunOptions {
 export interface RunEnvironment {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
-  readonly fetch: typeof fetch;
+  readonly invokeCli?: PlanningCli;
 }
 
 export interface PlanConditionInput {

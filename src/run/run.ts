@@ -3,7 +3,6 @@ import {
   authorizePlanningScope,
   defaultExecutionSettings,
   loadPlanningProfile,
-  resolveApiKey,
 } from '../plan/profile.js';
 import type { DataCategory, ExecutionSettings } from '../plan/types.js';
 import { sha256 } from '../verify/files.js';
@@ -165,17 +164,15 @@ export async function runVerification(
   const categories = categoriesFor(runPlan, settings);
   authorizePlanningScope(profile, {
     provider: profile.connection.provider,
-    endpoint: profile.connection.endpoint,
     project: snapshot.repository.root,
     dataCategories: categories,
   });
-  const apiKey = resolveApiKey(profile, environment.env);
   assertIsolationSupported();
 
   const generationContext: GenerationContext = {
     profile,
-    apiKey,
-    fetch: environment.fetch,
+    invokeCli: environment.invokeCli,
+    env: environment.env,
     snapshot,
     runPlan,
   };
@@ -249,6 +246,7 @@ export async function runVerification(
 
       while (
         result.status === 'invalid-generated-test' &&
+        requestCount < profile.limits.maxRequests &&
         attempt < settings.limits.maxRepairAttempts
       ) {
         const condition = conditions.get(current.conditionId)!;

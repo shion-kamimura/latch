@@ -157,6 +157,7 @@ export function buildPlanningPrompt(
   context: PromptContext,
   maxCharacters: number,
 ): PlanningPrompt {
+  const maximum = Math.max(0, maxCharacters - SYSTEM_PROMPT.length);
   const fullSections = [
     issueSection(context.issue),
     diffSection(context),
@@ -164,11 +165,11 @@ export function buildPlanningPrompt(
     taskSection(),
   ];
   const full = fullSections.join('\n\n');
-  if (full.length <= maxCharacters) {
+  if (full.length <= maximum) {
     return { system: SYSTEM_PROMPT, user: full, truncated: false };
   }
 
-  const budget = Math.max(400, Math.floor(maxCharacters / fullSections.length));
+  const budget = Math.max(400, Math.floor(maximum / fullSections.length));
   const trimmed = [
     truncate(fullSections[0] ?? '', budget * 2),
     truncate(fullSections[1] ?? '', budget * 3),
@@ -177,10 +178,7 @@ export function buildPlanningPrompt(
   ].join('\n\n');
   return {
     system: SYSTEM_PROMPT,
-    user:
-      trimmed.length <= maxCharacters
-        ? trimmed
-        : truncate(trimmed, maxCharacters),
+    user: trimmed.length <= maximum ? trimmed : truncate(trimmed, maximum),
     truncated: true,
   };
 }

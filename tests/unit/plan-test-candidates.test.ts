@@ -93,6 +93,26 @@ describe('Vitest candidate discovery', () => {
     ).toBe(false);
   });
 
+  test('does not explore official CLI credential directories', () => {
+    const directory = temporary();
+    write(
+      directory.root,
+      '.claude/hidden.test.ts',
+      "test('credential sentinel', () => {});",
+    );
+    write(
+      directory.root,
+      '.codex/hidden.test.ts',
+      "test('credential sentinel', () => {});",
+    );
+    write(directory.root, 'test/safe.test.ts', "test('safe input', () => {});");
+    expect(
+      discoverVitestCandidates(directory.root).candidates.map(
+        (candidate) => candidate.name,
+      ),
+    ).toEqual(['safe input']);
+  });
+
   test('recognizes evaluation artifacts and change patches', () => {
     expect(
       isEvaluationArtifactPath('fixtures/order-api/evaluation/cases.json'),

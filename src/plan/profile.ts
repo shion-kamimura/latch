@@ -11,21 +11,20 @@ import type {
 } from './types.js';
 import { isInside, realPathOrNull } from '../verify/paths.js';
 
-export const SUPPORTED_PROVIDER = 'openai-compatible';
-export const DEFAULT_API_KEY_ENV = 'LATCH_API_KEY';
+export const SUPPORTED_PROVIDER = 'claude-code';
 
 const MAX_PROFILE_BYTES = 64 * 1024;
 const DATA_CATEGORIES: readonly DataCategory[] = ['issue', 'diff', 'tests'];
 const HARD_LIMITS: PlanningLimits = {
   maxRequests: 3,
   timeoutMs: 120_000,
-  maxOutputTokens: 8192,
+  maxOutputBytes: 1_000_000,
   maxInputCharacters: 200_000,
 };
 const DEFAULT_LIMITS: PlanningLimits = {
   maxRequests: 2,
   timeoutMs: 30_000,
-  maxOutputTokens: 4096,
+  maxOutputBytes: 200_000,
   maxInputCharacters: 60_000,
 };
 const CREDENTIAL_KEYS = new Set([
@@ -94,40 +93,6 @@ function loopbackHost(hostname: string): boolean {
   );
 }
 
-export function normalizeEndpoint(value: string): string {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    profileError(
-      '許可profileのendpointがURLとして解釈できません。',
-      'providerのHTTPS endpointを許可profileへ指定してください。',
-    );
-  }
-  const https = url.protocol === 'https:';
-  const localHttp = url.protocol === 'http:' && loopbackHost(url.hostname);
-  if (!https && !localHttp) {
-    profileError(
-      '許可profileのendpointはHTTPS（またはloopbackのHTTP）である必要があります。',
-      '平文の外部endpointは指定しないでください。',
-    );
-  }
-  if (url.username || url.password) {
-    profileError(
-      '許可profileのendpointに認証情報を含めないでください。',
-      'APIキーは環境変数から読み込み、endpointへ埋め込まないでください。',
-    );
-  }
-  if (url.search || url.hash) {
-    profileError(
-      '許可profileのendpointにqueryやfragmentを含めないでください。',
-      'providerのbase URLだけを指定してください。',
-    );
-  }
-  const path = url.pathname.replace(/\/+$/u, '');
-  return `${url.origin}${path}`;
-}
-
 function readDataCategories(value: unknown): DataCategory[] {
   if (!Array.isArray(value) || value.length === 0) {
     profileError(
@@ -179,11 +144,11 @@ function readLimits(value: unknown): PlanningLimits {
       1_000,
       HARD_LIMITS.timeoutMs,
     ),
-    maxOutputTokens: boundedInteger(
-      limits.maxOutputTokens,
-      DEFAULT_LIMITS.maxOutputTokens,
-      256,
-      HARD_LIMITS.maxOutputTokens,
+    maxOutputBytes: boundedInteger(
+      limits.maxOutputBytes,
+      DEFAULT_LIMITS.maxOutputBytes,
+      1_000,
+      HARD_LIMITS.maxOutputBytes,
     ),
     maxInputCharacters: boundedInteger(
       limits.maxInputCharacters,
@@ -422,13 +387,25 @@ export function parsePlanningProfile(
   if (containsCredentialField(parsed)) {
     profileError(
       '許可profileに認証情報らしき項目が含まれています。',
-      'APIキー・認証ヘッダー・tokenをprofileへ保存せず、環境変数から読み込んでください。',
+      '認証情報をprofileへ保存せず、公式CLIでログインしてください。',
     );
   }
-  if (parsed.version !== 1) {
+  if (
+    (isRecord(parsed.limits) && 'maxOutputTokens' in parsed.limits) ||
+    parsed.version === 1 ||
+    (isRecord(parsed.connection) &&
+      ('endpoint' in parsed.connection || 'apiKeyEnv' in parsed.connection)) ||
+    (isRecord(parsed.allowed) && 'endpoint' in parsed.allowed)
+  ) {
+    profileError(
+      '旧API接続profileは使用できません。',
+      '公式CLIでログインし、docs/official-cli.md の version: 2 の許可profileへ作り直してください。APIキーへのフォールバックはありません。',
+    );
+  }
+  if (parsed.version !== 2) {
     profileError(
       '許可profileのversionが未対応です。',
-      'version: 1 の許可profileを指定してください。',
+      'version: 2 の許可profileを指定してください。',
     );
   }
 
@@ -466,28 +443,11 @@ export function parsePlanningProfile(
     );
   }
 
-  const allowedEndpoint = normalizeEndpoint(
-    requireString(allowed.endpoint, 'allowed.endpoint', 2_000),
-  );
-  const connectionEndpoint = normalizeEndpoint(
-    requireString(connection.endpoint, 'connection.endpoint', 2_000),
-  );
   const project = requireString(allowed.project, 'allowed.project', 4_000);
   if (!isAbsolute(project)) {
     profileError(
       '許可profileのallowed.projectは絶対パスで指定してください。',
       '送信を許可するプロジェクトのリポジトリルートを絶対パスで指定してください。',
-    );
-  }
-  const apiKeyEnv = requireString(
-    connection.apiKeyEnv ?? DEFAULT_API_KEY_ENV,
-    'connection.apiKeyEnv',
-    100,
-  );
-  if (!/^[A-Z_][A-Z0-9_]*$/u.test(apiKeyEnv)) {
-    profileError(
-      '許可profileのconnection.apiKeyEnvが環境変数名として不正です。',
-      '大文字・数字・アンダースコアだけの環境変数名を指定してください。',
     );
   }
 
@@ -496,15 +456,12 @@ export function parsePlanningProfile(
     decision,
     allowed: {
       provider: allowedProvider,
-      endpoint: allowedEndpoint,
       project: realPathOrNull(project) ?? project,
       dataCategories: readDataCategories(allowed.dataCategories),
     },
     connection: {
       provider: connectionProvider,
-      endpoint: connectionEndpoint,
       model: requireString(connection.model, 'connection.model', 200),
-      apiKeyEnv,
     },
     limits: readLimits(parsed.limits),
     execution: readExecution(parsed.execution),
@@ -531,7 +488,7 @@ export function loadPlanningProfile(
 function scopeError(message: string): never {
   throw new RequirementPlanError(
     message,
-    '利用者管理の許可profileでprovider・endpoint・project・データ区分を明示してから再実行してください。',
+    '利用者管理の許可profileでprovider・project・データ区分を明示してから再実行してください。',
   );
 }
 
@@ -553,12 +510,6 @@ export function authorizePlanningScope(
   if (profile.connection.provider !== requested.provider) {
     scopeError('connectionのproviderが許可範囲外です。');
   }
-  if (profile.connection.endpoint !== requested.endpoint) {
-    scopeError('connectionのendpointが許可範囲外です。');
-  }
-  if (profile.allowed.endpoint !== requested.endpoint) {
-    scopeError('endpointが許可profileの範囲外です。新しい許可が必要です。');
-  }
   const allowedProject =
     realPathOrNull(profile.allowed.project) ?? profile.allowed.project;
   const requestedProject =
@@ -574,18 +525,4 @@ export function authorizePlanningScope(
       `データ区分（${missing.join(', ')}）が許可profileの範囲外です。新しい許可が必要です。`,
     );
   }
-}
-
-export function resolveApiKey(
-  profile: PlanningProfile,
-  env: NodeJS.ProcessEnv,
-): string {
-  const value = env[profile.connection.apiKeyEnv];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new RequirementPlanError(
-      `BYOKのAPIキー（環境変数 ${profile.connection.apiKeyEnv}）が設定されていません。`,
-      'APIキーはprofile・ログ・レポートへ保存せず、環境変数から設定してください。',
-    );
-  }
-  return value;
 }

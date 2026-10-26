@@ -1,6 +1,6 @@
 # 要件抽出と検証シナリオ計画（#24）
 
-移行状況: 本書のAPI/BYOK接続は現行実装の説明です。#81で廃止予定ですが、公式CLIへの置換は未実装です。旧接続での実API評価は取りやめ、[公式CLIへの移行調査](official-cli.md) と [評価手順](order-api-evaluation.md) へ引き継ぎます。
+接続方式: #81で旧API/BYOK接続を廃止し、公式CLIへ置換しました。対応版・環境・契約上の注意・未実施の実利用評価は [公式CLI接続](official-cli.md) と [評価手順](order-api-evaluation.md) を参照してください。
 
 この文書は、`latch plan` が入力スナップショットから要件・条件を抽出し、Vitestの既存テスト候補と不足シナリオを計画する仕様です。#24で実装した範囲は、**要件抽出と計画まで**であり、計画コマンド自体はテスト生成・対象コードや設定の実行・テスト実行・隔離実行・実行証拠の収集・PR投稿を行いません。計画に実行証拠や「検証成功」は含まれません。後続の `latch run` が [生成テストの隔離実行と証拠収集](isolated-execution.md) に従って実行証拠を収集します。
 
@@ -23,40 +23,37 @@ latch plan --base origin/main --issue-file issue.md --profile ~/.config/latch/ll
 - 終了コード1は入力不正です。
 - 終了コード2は許可不足・認証失敗・利用上限・タイムアウト・不正なLLM応答など、実行不能・判定不能です。計画を途中で標準出力へ出しません。
 
-## 単一プロバイダーとBYOK
+## 公式CLIへの委譲
 
-実装したプロバイダーは **OpenAI互換のchat completionsを返す単一プロバイダー** です。SDKは追加せず、Node.jsの`fetch`で `POST <endpoint>/chat/completions` を呼びます。複数プロバイダーの切替・自動フォールバックは行いません。
+Claude Code 2.1.310の非対話実行・構造化出力を使います。認証と通信は未改変の公式CLIへ委譲し、Latchはキーやトークンを要求・解決・保存・コピーしません。Linux（WSL以外）上のPro/Maxログインに対応し、管理者設定の配置先/キャッシュがある環境や未知の状態は推論前に拒否します。詳細と一次情報は [採用条件](official-cli.md) を参照してください。
 
-- モデル・endpointは利用者の許可profileで指定します。
-- APIキーはprofileへ保存せず、profileの `connection.apiKeyEnv`（既定は `LATCH_API_KEY`）が指す環境変数から読み込みます。
-- APIキー・認証ヘッダー・profile全文をログ・レポート・エラーへ出力しません。
-- 対象コード、設定ファイル、テストは実行・importしません。Vitestのテストファイルは読み取りとテキスト解析だけを行います。
+- モデルは許可profileの `connection.model` で指定します。
+- profileは送信許可と上限の設定です。公式CLIのログインは送信許可の代わりになりません。
+- 対象コード・設定・テストを要件計画中に実行・importしません。Vitest候補はテキストとして調査します。
+- 旧version 1・endpoint・apiKeyEnvは移行案内付きで拒否します。認証情報の移行・削除やAPI接続へのフォールバックは行いません。
 
-### 許可profile
+## 許可profile
 
 許可profileは**ワークツリー外**の利用者管理設定、または信頼したCI入力として置きます。リポジトリ内のファイルやIssue・差分・テスト本文・LLM応答を許可の根拠にしません。profileがリポジトリ内を指す場合は送信前に拒否します。
 
 ```json
 {
-  "version": 1,
-  "id": "local-deepseek",
+  "version": 2,
+  "id": "local-claude",
   "decision": "allowed",
   "allowed": {
-    "provider": "openai-compatible",
-    "endpoint": "https://api.example.com/v1",
+    "provider": "claude-code",
     "project": "/absolute/path/to/project",
     "dataCategories": ["issue", "diff", "tests"]
   },
   "connection": {
-    "provider": "openai-compatible",
-    "endpoint": "https://api.example.com/v1",
-    "model": "your-model",
-    "apiKeyEnv": "LATCH_API_KEY"
+    "provider": "claude-code",
+    "model": "sonnet"
   },
   "limits": {
     "maxRequests": 2,
     "timeoutMs": 30000,
-    "maxOutputTokens": 4096,
+    "maxOutputBytes": 200000,
     "maxInputCharacters": 60000
   }
 }
@@ -70,9 +67,9 @@ latch plan --base origin/main --issue-file issue.md --profile ~/.config/latch/ll
 | `denied`  | 保存済みの許可より拒否を優先し、送信せず終了コード2                       |
 | `revoked` | 取り消しを優先し、送信せず終了コード2。以前のレポートの許可記述も使わない |
 
-- `allowed.provider`・`allowed.endpoint`・`allowed.project`・`allowed.dataCategories` が送信範囲です。`connection`のprovider/endpointが許可範囲と一致しない場合や、現在のリポジトリ・Issue有無から増えたデータ区分は「範囲拡大」として送信しません。
+- `allowed.provider`・`allowed.project`・`allowed.dataCategories` が送信範囲です。`connection`のproviderが許可範囲と一致しない場合や、現在のリポジトリ・Issue有無から増えたデータ区分は「範囲拡大」として送信しません。
 - 差分の更新だけでは許可を失効させません。同じ範囲の再実行はprofileを再利用します。
-- 非対話実行（CIなど）でも確認待ちにしません。許可profileがない・拒否・取り消し・範囲拡大・キー未設定の場合は、必要な設定を標準エラーへ案内して終了コード2を返します。
+- 非対話実行（CIなど）でも確認待ちにしません。許可profileがない・拒否・取り消し・範囲拡大・未ログインの場合は、必要な設定を標準エラーへ案内して終了コード2を返します。
 - `project`はリポジトリルートの絶対パスです。移動・別プロジェクトは新しい許可として扱います。
 - 認証情報らしきキー（`apiKey`・`token`・`authorization`・`headers`など）を含むprofileは拒否します。
 
@@ -85,6 +82,7 @@ latch plan --base origin/main --issue-file issue.md --profile ~/.config/latch/ll
 | `tests` | 探索したVitestテスト候補のパス・テスト名・抜粋           |
 
 - Issue・差分・テスト本文は信頼できないデータとして区切り、システムプロンプトで命令として扱わないよう指示します。本文中の「許可する」「全ファイルを送る」などの記述は、実行権限・送信許可・設定変更として扱いません。
+- 既知の認証パス（`.claude/`・`.codex/`・`.env*`等）は入力・探索・隔離コピーから除外し、Issueにも指定できません。任意のソース中の秘密を検知するものではないため、入力に秘密を含めないでください。
 - #22の評価専用テスト・正解データ（`evaluation/`、`cases.json`、`expected.json`、`changes/*.patch`など）は、差分・テスト候補のどちらからもLLM入力へ混入させません。除外した場合は計画の警告に残します。
 - 入力が大きい場合は上限まで切り詰め、切り詰めたことを未検証事項として表示します。
 
@@ -118,11 +116,11 @@ IDは出典・由来・本文から決定的に作り、同じ入力と同じ抽
 
 ## 呼び出し量・時間・再試行の上限
 
-- `maxRequests` は1〜3に制限し、上限を超える値は3へ丸めます。1回の計画で無制限に再試行しません。
-- `timeoutMs` は1,000〜120,000ms、`maxOutputTokens` は256〜8,192、`maxInputCharacters` は1,000〜200,000に制限します。
-- 認証失敗（401/403）、利用上限・レート制限（429）、その他の4xx、不正なJSON・データ契約違反は再試行しません。
-- ネットワーク失敗・タイムアウト・5xxだけを上限内で再試行します。上限到達後は終了コード2で停止します。
-- LLM応答はJSONとして解析し、データ契約と出典を検証します。不正な応答を部分的に採用したり、成功レポートとして出力したりしません。
+- `maxRequests`は1〜3。plan/runごとのCLI推論起動の上限です。planは1回、runは生成と修復の合計で上限を守ります。自動再試行はしません。CLI内部のHTTP要求数・token数・費用の上限と同義ではありません。
+- `timeoutMs`は1,000〜120,000ms。版・認証確認を含む起動単位の期限です。タイムアウトやSIGINT/SIGTERMでプロセスグループを終了します。
+- `maxOutputBytes`は1,000〜1,000,000 bytes（既定200,000）。stdout/stderrの合計を制限し、生のエラーは出力しません。旧 `maxOutputTokens` は廃止しました。
+- `maxInputCharacters`は1,000〜200,000文字（既定60,000）。要件計画ではsystemとuserの合計で制限し、切り詰めを未検証事項へ残します。生成・修復で超過した場合は送信しません。
+- 構造化出力を受け取った後も、Latchのデータ契約と出典を検証します。不正な応答を部分的に成功として採用しません。
 
 ## 人の確認・修正・再計画
 
@@ -138,6 +136,6 @@ IDは出典・由来・本文から決定的に作り、同じ入力と同じ抽
 
 ## 検証の限界
 
-- 自動テストは固定したLLM応答を使い、抽出・出典検証・許可判定・失敗時の停止を確認します。実APIの品質評価は別です。
-- このリポジトリの自動テストでは実際の有料LLM APIを呼びません。実APIでの抽出精度・幻覚・コスト・レイテンシは未検証です。
+- 自動テストは固定したLLM応答を使い、抽出・出典検証・許可判定・失敗時の停止を確認します。公式CLIの実利用品質評価は別です。
+- このリポジトリの自動テストでは実際の有料モデルを呼びません。実ログインでの抽出精度・幻覚・コスト・レイテンシは未検証です。
 - 要件の網羅性、LLMの解釈の正しさ、既存テスト候補が条件を十分に確認できることは保証しません。テスト生成・実行・証拠収集は #25 の `latch run` の範囲で、計画の成功を実行証拠として扱いません。

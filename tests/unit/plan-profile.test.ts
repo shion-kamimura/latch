@@ -6,7 +6,6 @@ import {
   authorizePlanningScope,
   loadPlanningProfile,
   parsePlanningProfile,
-  resolveApiKey,
 } from '../../src/plan/profile.js';
 import {
   createProfileDirectory,
@@ -54,14 +53,12 @@ describe('planning permission profile', () => {
       id: 'test-profile',
       decision: 'allowed',
       allowed: {
-        provider: 'openai-compatible',
-        endpoint: 'https://llm.example.test/v1',
+        provider: 'claude-code',
         project,
         dataCategories: ['issue', 'diff', 'tests'],
       },
       connection: {
         model: 'test-model',
-        apiKeyEnv: 'LATCH_API_KEY',
       },
       limits: {
         maxRequests: 3,
@@ -97,7 +94,7 @@ describe('planning permission profile', () => {
     expect(profile.path).toBe(join(profiles.root, 'profile.json'));
   });
 
-  test('rejects stored credentials and credential-bearing endpoints', () => {
+  test('rejects stored credentials', () => {
     const project = temporary().root;
     const tokenError = expectPlanError(() =>
       parsePlanningProfile(
@@ -106,16 +103,6 @@ describe('planning permission profile', () => {
       ),
     );
     expect(tokenError.message).toContain('認証情報');
-
-    const endpointError = expectPlanError(() =>
-      parsePlanningProfile(
-        profileContent(project, {
-          allowedEndpoint: 'https://user:pass@llm.example.test/v1',
-        }),
-        '/tmp/profile.json',
-      ),
-    );
-    expect(endpointError.message).toContain('認証情報');
   });
 
   test('rejects an unsupported provider', () => {
@@ -126,7 +113,7 @@ describe('planning permission profile', () => {
         '/tmp/profile.json',
       ),
     );
-    expect(error.message).toContain('openai-compatible');
+    expect(error.message).toContain('claude-code');
   });
 
   test('allows the same scope repeatedly without confirmation', () => {
@@ -136,8 +123,7 @@ describe('planning permission profile', () => {
       '/tmp/profile.json',
     );
     const scope = {
-      provider: 'openai-compatible',
-      endpoint: 'https://llm.example.test/v1',
+      provider: 'claude-code',
       project,
       dataCategories: ['issue', 'diff', 'tests'] as const,
     };
@@ -149,8 +135,7 @@ describe('planning permission profile', () => {
   test('denies and revokes before any send even when another scope matches', () => {
     const project = temporary().root;
     const scope = {
-      provider: 'openai-compatible',
-      endpoint: 'https://llm.example.test/v1',
+      provider: 'claude-code',
       project,
       dataCategories: ['issue', 'diff', 'tests'] as const,
     };
@@ -170,32 +155,16 @@ describe('planning permission profile', () => {
     }
   });
 
-  test('requires a new permission for endpoint, project, and data expansion', () => {
+  test('requires a new permission for project and data expansion', () => {
     const project = temporary().root;
     const base = profileContent(project, {
       dataCategories: ['diff'],
     });
     const profile = parsePlanningProfile(base, '/tmp/profile.json');
 
-    const endpointProfile = parsePlanningProfile(
-      profileContent(project, {
-        connectionEndpoint: 'https://other.example.test/v1',
-      }),
-      '/tmp/profile.json',
-    );
-    expect(() =>
-      authorizePlanningScope(endpointProfile, {
-        provider: 'openai-compatible',
-        endpoint: 'https://other.example.test/v1',
-        project,
-        dataCategories: ['diff'],
-      }),
-    ).toThrow(/endpoint/);
-
     expect(() =>
       authorizePlanningScope(profile, {
-        provider: 'openai-compatible',
-        endpoint: 'https://llm.example.test/v1',
+        provider: 'claude-code',
         project: temporary().root,
         dataCategories: ['diff'],
       }),
@@ -203,27 +172,44 @@ describe('planning permission profile', () => {
 
     expect(() =>
       authorizePlanningScope(profile, {
-        provider: 'openai-compatible',
-        endpoint: 'https://llm.example.test/v1',
+        provider: 'claude-code',
         project,
         dataCategories: ['diff', 'issue'],
       }),
     ).toThrow(/データ区分/);
   });
 
-  test('reads the API key only from the configured environment variable', () => {
+  test('rejects legacy API profiles with migration guidance and no credential lookup', () => {
     const project = temporary().root;
-    const profile = parsePlanningProfile(
-      profileContent(project, { apiKeyEnv: 'BYOK_KEY' }),
-      '/tmp/profile.json',
-    );
-
-    expect(resolveApiKey(profile, { BYOK_KEY: 'secret' })).toBe('secret');
-    const error = expectPlanError(() =>
-      resolveApiKey(profile, { BYOK_KEY: '' }),
-    );
-    expect(error.message).toContain('BYOK_KEY');
-    expect(error.message).not.toContain('secret');
+    for (const legacy of [
+      { ...JSON.parse(profileContent(project)), version: 1 },
+      {
+        ...JSON.parse(profileContent(project)),
+        limits: { maxOutputTokens: 4096 },
+      },
+      {
+        ...JSON.parse(profileContent(project)),
+        connection: {
+          provider: 'claude-code',
+          model: 'test',
+          endpoint: 'https://example.test',
+        },
+      },
+      {
+        ...JSON.parse(profileContent(project)),
+        connection: {
+          provider: 'claude-code',
+          model: 'test',
+          apiKeyEnv: 'SECRET',
+        },
+      },
+    ]) {
+      const error = expectPlanError(() =>
+        parsePlanningProfile(JSON.stringify(legacy), '/tmp/profile.json'),
+      );
+      expect(error.message).toContain('旧API');
+      expect(error.guidance).toContain('version: 2');
+    }
   });
 
   test('parses execution settings and clamps limits', () => {

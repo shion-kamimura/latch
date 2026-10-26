@@ -1,3 +1,4 @@
+import type { PlanningCli } from '../../src/plan/llm.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -230,47 +231,43 @@ const INVALID_GENERATED_CODE = [
   '  expect(calculateOrder({ lines: [] })).toEqual({ ok: false });',
 ].join('\n');
 
-function llmResponse(code = GENERATED_CODE): Response {
-  return new Response(
-    JSON.stringify({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              tests: [
-                {
-                  conditionId: 'cond-discount-floor',
-                  name: 'floors fractional discount cents',
-                  rationale: '99 * 10% is 9.9 cents, floored to 9.',
-                  code,
-                },
-              ],
-            }),
-          },
-        },
-      ],
-    }),
-    { status: 200, headers: { 'content-type': 'application/json' } },
-  );
+function llmResponse(code = GENERATED_CODE): string {
+  return JSON.stringify({
+    tests: [
+      {
+        conditionId: 'cond-discount-floor',
+        name: 'generated check',
+        rationale: 'fixed CLI output',
+        code,
+      },
+    ],
+  });
 }
 
-function recordingFetch(code = GENERATED_CODE): {
-  fetch: typeof fetch;
+function recordingCli(code = GENERATED_CODE): {
+  invokeCli: PlanningCli;
   bodies: string[];
 } {
   const bodies: string[] = [];
-  const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
-    bodies.push(String(init?.body ?? ''));
+  const invokeCliMock = vi.fn<PlanningCli>(async (input) => {
+    bodies.push(
+      JSON.stringify({
+        messages: [
+          { role: 'system', content: input.system },
+          { role: 'user', content: input.user },
+        ],
+      }),
+    );
     return llmResponse(code);
   });
-  return { fetch: fetchMock, bodies };
+  return { invokeCli: invokeCliMock, bodies };
 }
 
 async function run(
   repo: TestRepository,
   planPath: string,
   profilePath: string,
-  fetchImpl: typeof fetch,
+  invokeCliImpl: PlanningCli,
 ) {
   const io = { stdout: vi.fn(), stderr: vi.fn() };
   const status = await runCli(
@@ -279,7 +276,7 @@ async function run(
     {
       cwd: repo.root,
       env: { LATCH_API_KEY: 'secret-value' },
-      fetch: fetchImpl,
+      invokeCli: invokeCliImpl,
     },
   );
   return { status, io };
@@ -307,10 +304,15 @@ describe('run command isolated execution', () => {
         'profile.json',
         profileContent(repo.root),
       );
-      const recorder = recordingFetch();
+      const recorder = recordingCli();
       const before = gitStatus(repo);
 
-      const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+      const { status, io } = await run(
+        repo,
+        planPath,
+        profile,
+        recorder.invokeCli,
+      );
 
       expect(status).toBe(0);
       const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
@@ -364,46 +366,54 @@ describe('run command isolated execution', () => {
     },
   );
 
-  test('does not treat an invalid generated test as a product failure', async () => {
-    const repo = repositoryWithChange('correct');
-    const planPath = planFile(repo, temporary());
-    const profile = profileDirectory().write(
-      'profile.json',
-      profileContent(repo.root),
-    );
-    const recorder = recordingFetch(INVALID_GENERATED_CODE);
+  test.each([1, 2])(
+    'does not treat invalid generated tests as product failures with a %i-call budget',
+    async (maxRequests) => {
+      const repo = repositoryWithChange('correct');
+      const planPath = planFile(repo, temporary());
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root, { limits: { maxRequests } }),
+      );
+      const recorder = recordingCli(INVALID_GENERATED_CODE);
 
-    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+      const { status, io } = await run(
+        repo,
+        planPath,
+        profile,
+        recorder.invokeCli,
+      );
 
-    expect(status).toBe(0);
-    const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
-      conditions: { state: string; notes: string[] }[];
-      evidence: { kind: string; status: string }[];
-      generation: { repairAttempts: number; maxRepairAttempts: number };
-    };
-    expect(report.generation.repairAttempts).toBe(1);
-    expect(report.generation.maxRepairAttempts).toBe(1);
-    expect(
-      report.evidence.find((item) => item.kind === 'generated')?.status,
-    ).toBe('invalid-generated-test');
-    expect(report.conditions[0]?.state).toBe('unverified');
-    expect(report.conditions[0]?.notes.join('')).toContain(
-      '製品不具合の証拠として扱いません',
-    );
-    expect(recorder.bodies).toHaveLength(2);
-  });
+      expect(status).toBe(0);
+      const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
+        conditions: { state: string; notes: string[] }[];
+        evidence: { kind: string; status: string }[];
+        generation: { repairAttempts: number; maxRepairAttempts: number };
+      };
+      expect(report.generation.repairAttempts).toBe(maxRequests - 1);
+      expect(report.generation.maxRepairAttempts).toBe(1);
+      expect(
+        report.evidence.find((item) => item.kind === 'generated')?.status,
+      ).toBe('invalid-generated-test');
+      expect(report.conditions[0]?.state).toBe('unverified');
+      expect(report.conditions[0]?.notes.join('')).toContain(
+        '製品不具合の証拠として扱いません',
+      );
+      expect(recorder.bodies).toHaveLength(maxRequests);
+    },
+  );
 
   test('fails closed without a profile and does not execute tests', async () => {
     const repo = repositoryWithChange('correct');
     const planPath = planFile(repo, temporary());
     const before = gitStatus(repo);
-    const fetchMock = vi.fn<typeof fetch>(async () => llmResponse());
+    const invokeCliMock = vi.fn<PlanningCli>(async () => llmResponse());
     const io = { stdout: vi.fn(), stderr: vi.fn() };
 
     const status = await runCli(['run', '--plan', planPath], io, {
       cwd: repo.root,
       env: { LATCH_API_KEY: 'secret-value' },
-      fetch: fetchMock,
+      invokeCli: invokeCliMock,
     });
 
     expect(status).toBe(2);
@@ -411,7 +421,7 @@ describe('run command isolated execution', () => {
     expect(io.stderr).toHaveBeenCalledWith(
       expect.stringContaining('--profile'),
     );
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(invokeCliMock).not.toHaveBeenCalled();
     expect(gitStatus(repo)).toBe(before);
   });
 
@@ -426,7 +436,7 @@ describe('run command isolated execution', () => {
       'src/api.ts',
       `${readFileSync(join(repo.root, 'src/api.ts'), 'utf8')}\n// changed after plan\n`,
     );
-    const fetchMock = vi.fn<typeof fetch>(async () => llmResponse());
+    const invokeCliMock = vi.fn<PlanningCli>(async () => llmResponse());
     const io = { stdout: vi.fn(), stderr: vi.fn() };
 
     const status = await runCli(
@@ -435,12 +445,12 @@ describe('run command isolated execution', () => {
       {
         cwd: repo.root,
         env: { LATCH_API_KEY: 'secret-value' },
-        fetch: fetchMock,
+        invokeCli: invokeCliMock,
       },
     );
 
     expect(status).toBe(1);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(invokeCliMock).not.toHaveBeenCalled();
     expect(io.stderr).toHaveBeenCalledWith(
       expect.stringContaining('一致しません'),
     );
@@ -453,9 +463,14 @@ describe('run command isolated execution', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch();
+    const recorder = recordingCli();
 
-    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
 
     expect(status).toBe(0);
     const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
@@ -532,9 +547,14 @@ describe('run command isolated execution', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch();
+    const recorder = recordingCli();
 
-    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
 
     expect(status).toBe(0);
     const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
@@ -587,9 +607,14 @@ describe('run command isolated execution', () => {
         },
       }),
     );
-    const recorder = recordingFetch(SLOW_GENERATED_CODE);
+    const recorder = recordingCli(SLOW_GENERATED_CODE);
 
-    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
 
     expect(status).toBe(2);
     const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
@@ -614,7 +639,7 @@ describe('run command isolated execution', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch();
+    const recorder = recordingCli();
     const io = {
       stdout: vi.fn(() => {
         throw new Error('write failed');
@@ -628,7 +653,7 @@ describe('run command isolated execution', () => {
       {
         cwd: repo.root,
         env: { LATCH_API_KEY: 'secret-value' },
-        fetch: recorder.fetch,
+        invokeCli: recorder.invokeCli,
       },
     );
 

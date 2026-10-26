@@ -1,7 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { SUPPORTED_CLI_VERSION } from '../../src/plan/llm.js';
+import { createFakeCli } from '../helpers/official-cli.js';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from 'vitest';
@@ -108,13 +110,14 @@ function fingerprint(repo: TestRepository) {
   };
 }
 
-function run(args: string[], cwd: string) {
+function run(args: string[], cwd: string, env: NodeJS.ProcessEnv) {
   return new Promise<{ status: number | null; stdout: string; stderr: string }>(
     (resolve, reject) => {
       const child = spawn(process.execPath, [cli, ...args], {
         cwd,
         env: {
-          PATH: process.env.PATH,
+          PATH: env.PATH,
+          HOME: env.HOME,
           LANG: 'C',
           LATCH_API_KEY: 'evaluation-dummy-key',
         },
@@ -138,46 +141,11 @@ function run(args: string[], cwd: string) {
 test('evaluates the complete built CLI flow against a withheld oracle', async () => {
   const repo = createTestRepository();
   const output = createTemporaryDirectory();
-  const requests: string[] = [];
-  let mode = 'correct';
-  let conditionId = '';
-  const server = createServer((request, response) => {
-    let body = '';
-    request.on('data', (chunk: Buffer) => {
-      body += chunk.toString();
-    });
-    request.on('end', () => {
-      requests.push(body);
-      const generation = body.includes('You generate Vitest tests');
-      const content = generation
-        ? {
-            tests: [
-              {
-                conditionId,
-                name: 'floors the discount',
-                rationale: 'Fractional discount boundary.',
-                code: mode === 'impossible' ? slowCode : generatedCode,
-              },
-            ],
-          }
-        : fixedPlan(mode === 'ambiguous');
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(
-        JSON.stringify({
-          choices: [{ message: { content: JSON.stringify(content) } }],
-        }),
-      );
-    });
-  });
+  const mockCli = createFakeCli(output.root);
+  const requests = () =>
+    mockCli.requests().map((request) => JSON.stringify(request));
   const records: unknown[] = [];
   try {
-    await new Promise<void>((resolve) =>
-      server.listen(0, '127.0.0.1', resolve),
-    );
-    const address = server.address();
-    if (!address || typeof address === 'string')
-      throw new Error('missing mock address');
-    const endpoint = `http://127.0.0.1:${address.port}/v1`;
     for (const path of [
       'package.json',
       'tsconfig.json',
@@ -203,7 +171,7 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
     repo.write('untracked.txt', 'must remain unchanged');
 
     for (const current of ['correct', 'buggy', 'ambiguous', 'impossible']) {
-      mode = current;
+      const mode = current;
       const change = current === 'buggy' ? 'buggy' : 'correct';
       const patch = join(fixture, 'changes', `${change}.patch`);
       repo.git(['apply', patch]);
@@ -215,13 +183,11 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
       const before = fingerprint(repo);
       expect(fingerprint(repo), 'fingerprint itself').toEqual(before);
       const start = performance.now();
-      const requestStart = requests.length;
+      const requestStart = requests().length;
       const profile = join(output.root, 'profile.json');
       writeFileSync(
         profile,
         profileContent(repo.root, {
-          allowedEndpoint: endpoint,
-          connectionEndpoint: endpoint,
           model: 'fixed-order-api-v1',
           limits: { maxRequests: 1 },
           extra: {
@@ -234,6 +200,7 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
           },
         }),
       );
+      mockCli.configure({ response: fixedPlan(mode === 'ambiguous') });
       const planned = await run(
         [
           'plan',
@@ -246,6 +213,7 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
           '--json',
         ],
         repo.root,
+        mockCli.env,
       );
       expect(planned.status, planned.stderr).toBe(0);
       expect(fingerprint(repo), 'after plan').toEqual(before);
@@ -253,13 +221,25 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
       expect(plan.llm.model).toBe('fixed-order-api-v1');
       expect(plan.input.base.commit).toBe(base);
       expect(plan.testCandidates.length).toBeGreaterThan(0);
-      conditionId = plan.requirements[0]!.conditions[0]!.id;
+      const conditionId = plan.requirements[0]!.conditions[0]!.id;
       const planPath = join(output.root, 'plan.json');
       writeFileSync(planPath, planned.stdout);
+      mockCli.configure({
+        response: {
+          tests: [
+            {
+              conditionId,
+              name: 'floors the discount',
+              rationale: 'Fractional discount boundary.',
+              code: mode === 'impossible' ? slowCode : generatedCode,
+            },
+          ],
+        },
+      });
       const args = ['run', '--plan', planPath, '--profile', profile];
-      const json = await run([...args, '--json'], repo.root);
+      const json = await run([...args, '--json'], repo.root, mockCli.env);
       expect(fingerprint(repo), 'after JSON run').toEqual(before);
-      const text = await run(args, repo.root);
+      const text = await run(args, repo.root, mockCli.env);
       const expectedExit = mode === 'impossible' ? 2 : 0;
       expect(json.status, json.stderr).toBe(expectedExit);
       expect(text.status, text.stderr).toBe(expectedExit);
@@ -311,8 +291,8 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
       );
       expect(report.isolation.cleanup.status).toBe('removed');
       expect(fingerprint(repo)).toEqual(before);
-      expect(requests.length - requestStart).toBe(3); // plan + JSON run + text run
-      expect(requests.join('\n')).not.toContain('withheld-oracle-sentinel');
+      expect(requests().length - requestStart).toBe(3); // plan + JSON run + text run
+      expect(requests().join('\n')).not.toContain('withheld-oracle-sentinel');
       expect(JSON.stringify({ report, text })).not.toContain(
         'evaluation-dummy-key',
       );
@@ -354,7 +334,7 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
         issueDigest: report.input.issue.digest,
         diffDigest: report.input.diff.digest,
         snapshotDigest: report.input.snapshotDigest,
-        requests: requests.length - requestStart,
+        requests: requests().length - requestStart,
         elapsedMs: Math.round(performance.now() - start),
         worktreeUnchanged: true,
       });
@@ -373,12 +353,18 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
     ).toEqual({ subtotalCents: 99, totalCents: 90, appliedCoupon: 'SAVE10' });
     const record = {
       mode: 'fixed-response-regression',
+      transport: 'official-cli-process-fixture',
+      cliVersion: SUPPORTED_CLI_VERSION,
+      latchRevision: execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        encoding: 'utf8',
+      }).trim(),
       model: 'fixed-order-api-v1',
       at: new Date().toISOString(),
       node: process.version,
       trialsPerCase: 1,
       usage:
-        'No real API calls; token usage is not supplied by the mock; cost USD 0.',
+        'No real model requests; token usage is not supplied by the CLI fixture; cost USD 0.',
       records,
       fixtureHashes: Object.fromEntries(
         [
@@ -403,10 +389,6 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
       );
     console.log(JSON.stringify(record));
   } finally {
-    server.closeAllConnections();
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
     repo.cleanup();
     output.cleanup();
   }
