@@ -4,6 +4,8 @@ Latchは、AIが生成したコードをGitHub IssueやPRの要件と照合し�
 
 現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）、`latch plan` による要件抽出・既存Vitestテスト候補と不足シナリオの計画、`latch run` によるVitestテスト生成・隔離実行・実行証拠の収集と、要件→テスト→証拠を対応づけたテキスト／JSONレポートを提供しています。Markdownファイル出力・CI連携・GitHub PR投稿はまだ実装していません。
 
+製品は既存の公式ツール・標準機能を優先し、自前実装と資格情報管理を減らす方針です。責務の分担は [製品方針](docs/product-vision.md#自前実装を最小化する原則) を参照してください。[#81の公式CLI移行](docs/official-cli.md) は調査中で、現行のBYOK接続はまだ残っています。公式CLI対応済みとは扱いません。
+
 ## 使用技術
 
 - Node.js 26 / TypeScript（strictモード、ES Modules）
@@ -76,7 +78,7 @@ pnpm build
 pnpm exec vitest run --project e2e tests/e2e/evaluation.test.ts
 ```
 
-Node.js 26、リポジトリの開発依存、loopback通信が必要です。実APIの品質評価は未実施で、固定応答の合格から抽出・生成品質やAPI全体の正しさを保証しません。実API評価に必要なBYOK/profile、要求数・費用・時間の上限、誤検出・見逃し・未検証の記録方法は上記手順を参照してください。
+Node.js 26、リポジトリの開発依存、loopback通信が必要です。固定応答の合格から抽出・生成品質やAPI全体の正しさを保証しません。旧BYOK方式での実API評価は取りやめ、公式CLIでの実利用評価を #81 へ引き継ぎます。採用条件、契約と利用上限、誤検出・見逃し・未検証の記録方法は上記手順を参照してください。
 
 ## ビルドとCLIの実行
 

@@ -1,6 +1,6 @@
 # サンプルAPIによる全工程の評価
 
-Issue #27 の評価は、**固定応答による接続の回帰テスト**と、**実APIによるモデル品質の手動評価**を分けます。固定応答の合格は、実モデルが要件や不足テストを正しく生成できる証拠にはしません。
+Issue #27の未実施の実利用評価は #81へ引き継ぎます。**固定応答による接続の回帰テスト**と、**公式CLIによるモデル品質の手動評価**を分けます。旧BYOK方式での実API評価は取りやめます。固定応答の合格は、実モデルが要件や不足テストを正しく生成できる証拠にはしません。
 
 ## 再現可能な回帰テスト
 
@@ -51,45 +51,16 @@ Node.js 26.12.1 / pnpm 12.14.0、Linuxで実行しました。基準のLatch com
 
 未抽出のIssue条件はこの固定応答では未検証です。HTTP全体の評価、実モデルの誤検出・見逃し・不安定さ・コストは未測定であり、実利用の受け入れ条件まで達成済みとは扱いません。
 
-## 実APIの手動評価手順（未実施）
+## 公式CLIによる実利用評価（未実施）
 
-現在の実行環境にはBYOKキーがなく、実API評価は未検証です。以下は実施手順であり、実測結果ではありません。単一のOpenAI互換providerを選び、provider・endpoint・返却モデル識別子・実施日時・利用単価を記録してください。別providerへの自動切替はしません。
+[移行調査と採用条件](official-cli.md) を満たす方式を選んでから実施します。現行コードは旧API接続であり、以下は公式CLI実装後の評価契約です。旧APIキーの設定手順と1 USD予算は廃止し、月額プランへ機械的に適用しません。固定応答の合格やヘルプの確認だけで実利用完了とはしません。
 
-### 上限と設定
+### 実行前に固定するもの
 
-初回の上限は **1モデル・correct/buggy各1試行、合計4要求、1 USD、全体10分** とします。各コマンドの `limits.maxRequests=1`、`timeoutMs=30000`、`maxOutputTokens=4096`、生成修復 `maxRepairAttempts=0` とし、テキスト用の追加runは実施しません。CLIはトークン利用量・金額の集計や全コマンド共通の費用制限を持ちません。provider側で1 USD以内の上限を設定できる環境を用い、実行前に残予算を確認し、上限到達・認証失敗・時間超過・不正応答で中止します。送信済み分の課金は取り消せません。利用量が不明なら推定費用で継続せず停止し、取得不能理由を記録します。
-
-候補ごとにワークツリー外へprofileを作成します。キーはprofileに含めず `LATCH_API_KEY` に設定します。profileの契約とデータ区分は [計画の仕様](requirement-planning.md)、隔離の制約は [実行の仕様](isolated-execution.md) を参照してください。
-
-```json
-{
-  "version": 1,
-  "id": "order-api-manual-evaluation",
-  "decision": "allowed",
-  "allowed": {
-    "provider": "openai-compatible",
-    "endpoint": "https://YOUR-PROVIDER/v1",
-    "project": "/absolute/path/to/candidate",
-    "dataCategories": ["issue", "diff", "tests"]
-  },
-  "connection": {
-    "provider": "openai-compatible",
-    "endpoint": "https://YOUR-PROVIDER/v1",
-    "model": "YOUR-MODEL",
-    "apiKeyEnv": "LATCH_API_KEY"
-  },
-  "limits": {
-    "maxRequests": 1,
-    "timeoutMs": 30000,
-    "maxOutputTokens": 4096
-  },
-  "execution": {
-    "dependencies": { "mode": "runner" },
-    "network": { "allowedDestinations": [] },
-    "limits": { "timeoutMs": 30000, "maxRepairAttempts": 0 }
-  }
-}
-```
+- 利用者が指定したCLI・契約・モデルと、要求数・時間・利用量の上限。公式条件に照らして利用可能範囲を確認し、一般の月額利用を可能と断定しない。
+- 同一base・同一Issueから作るcorrect/buggyの候補。下の共通baseの手順で正解データと変更パッチを含まない候補を作り、全モデル要求が終わるまで評価側の正解データを開かない。
+- 曖昧な要件を追加するケースと、生成テストが実行不能になるケース。期待状態は上の固定応答と同じ区別を維持する。
+- コマンドごとの上限と全工程の上限。構造化出力・CLI内部の再試行・修復も含めて計上し、取得できない利用量や残上限を推定で補って継続しない。
 
 ### 同じbaseから候補を作る
 
@@ -112,48 +83,23 @@ git -C "$EVAL_ROOT/correct" apply "$LATCH_ROOT/fixtures/order-api/changes/correc
 git -C "$EVAL_ROOT/buggy" apply "$LATCH_ROOT/fixtures/order-api/changes/buggy.patch"
 ```
 
-両候補の `git rev-parse origin/main` とIssueのSHA-256が同じことを確認します。profileの `allowed.project` を各候補の絶対パスに合わせ、profileは `$EVAL_ROOT` 直下など候補の外へ保存してください。候補では依存をインストールせず、Latchのrunner依存を使います。
-
-各候補について実行前に全通常ファイルのSHA-256一覧、Git indexのSHA-256、HEAD、`git --no-optional-locks status --porcelain=v1 --untracked-files=all` を候補外へ保存します。終了後も同様に取得して比較し、変更があれば未達として記録します。
-
-```sh
-# correctで実行。buggyでも同じ手順を1回だけ行う。
-cd "$EVAL_ROOT/correct"
-node "$LATCH_ROOT/dist/cli.mjs" plan --base origin/main --issue-file issue.md \
-  --profile "$EVAL_ROOT/correct-profile.json" --json > "$EVAL_ROOT/correct-plan.json"
-# planが0で終了した場合のみ実行する。
-node "$LATCH_ROOT/dist/cli.mjs" run --plan "$EVAL_ROOT/correct-plan.json" \
-  --profile "$EVAL_ROOT/correct-profile.json" --json > "$EVAL_ROOT/correct-report.json"
-```
-
-開始・終了時刻と各終了コードを記録します。テキスト表示には保存したJSONの `renderRunText`（`src/run/render.ts`）をローカルで使えます。テキスト出力のCLI接続は固定応答テストで確認し、手動評価では追加runによる費用と生成の変動を避けます。
+両候補の `git rev-parse origin/main` とIssueのSHA-256が同じことを確認します。コマンド出力・評価記録は候補ワークツリーの外へ保存します。実行前後で全通常ファイルとGit indexのSHA-256、HEAD、`git --no-optional-locks status --porcelain=v1 --untracked-files=all` を比較し、不変性を確認します。公式CLI用profileとplan/runの具体的な設定は、接続実装の採用時に確定します。
 
 ### 正解との照合と記録
 
-全API要求が終わってから、評価側だけで `evaluation/cases.json` を開き、Issue条件ごとに計画・生成テスト・実行証拠を照合します。正解データをplanへ追記したり、生成処理へ送信したりしません。
+全モデル要求が終わってから評価側だけで `evaluation/cases.json` を読み、Issue条件ごとに計画・生成テスト・実行証拠を照合します。
 
-- correctで実際に妥当なテストが失敗したら変更の不具合か正解データを再点検し、誤った生成アサーションなら誤検出として記録する。
-- buggyの端数処理について生成テストの失敗・条件ID・証拠ID・期待90と実際89の差を確認する。既存テストだけの成功、未生成、誤った期待値のテスト成功は検出達成としない。見逃しか未検証として入力と再現手順を残す。
-- 抽出されなかった要件、候補との誤対応、曖昧な条件の断定、生成不正、環境不足を区別する。runの終了コード0は全要件の合格を意味しない。
-- 利用量はproviderの請求・利用量画面から取得する。CLIは応答のusageをレポートへ保持しないため、取得できなければ理由を記録する。キー・認証ヘッダー・環境変数全体・生の通信ログは保存しない。
+| ケース     | 必要な比較                                                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| correct    | 期待verifiedと実測を比較する。誤った生成アサーションの失敗は誤検出として記録する                                                     |
+| buggy      | 既存テストの成功と生成テストの失敗、条件ID・証拠ID、期待90と実際89の差を確認する。未生成・誤った期待値・見逃しを検出達成扱いにしない |
+| ambiguous  | 曖昧な要求を断定せず、ambiguous・証拠なしになるか比較する                                                                            |
+| impossible | execution-impossible・部分結果・終了コード2と実測を比較する。生成不正や環境不足を製品不具合の証拠にしない                            |
 
-評価記録には次を残します。
+評価記録には、日時、Latch commit、Node/pnpm・OS・CLI版、モデル指定名と返却識別情報、base/head・fixture hashes・Issue/diff/snapshot/planのdigest、試行数、条件/テスト/証拠ID、期待と実測の差、誤検出・見逃し・未検証、終了コード、経過時間、要求数、利用量、上限と中止理由を残します。モデル識別情報や利用量を取得できなければ理由を明記します。キー・ログイントークン・認証ヘッダー・環境変数全体・生の通信ログは保存しません。
 
-| 項目         | 記録内容                                                                                                                 |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| 実行         | 日時、Latch commit、Node/pnpm版、OS、モデル指定名と返却識別情報（取得不能なら理由）、profileの秘密を含まない設定、試行数 |
-| 再現入力     | fixture hashes、base/head、Issue/diff/snapshot/planのdigest、適用patch、追加要求                                         |
-| ケース別結果 | 期待状態、実測状態、差異、誤検出・見逃し・未検証、条件/テスト/証拠ID、終了コード                                         |
-| 利用         | 要求数（修復・再試行含む）、providerのtoken数・金額または取得不能理由、開始/終了と経過時間                               |
-| 制約         | ワークツリー比較、送信対象、隔離方式、未検証領域、中止理由、次の課題                                                     |
+テキスト表示のためだけに有料runを追加しません。固定応答でテキスト/JSONの接続を検証し、実利用では同じ実行結果から確認します。対象ワークツリー・未追跡ファイル・Git indexの不変、正解データ非送信、生成テストへの資格情報非継承も記録します。
 
-## 残課題と後続Issue案
+## 現在の未達
 
-実API評価、複数回での変動率・抽出漏れ率・誤検出率の測定は未実施です。固定応答の端数1条件からAPI全体の品質を推定しません。HTTP接続・全境界条件・敵対的入力・OSレベル隔離はこの評価で確認していません。
-
-次の独立したIssue候補を残します（本変更で登録・実装はしません）。
-
-1. **LLM利用量と評価予算の集計**: plan・生成・修復を通した要求数、返却モデル、usageと取得不能理由を保存し、全工程の上限を設ける。現状のmaxRequestsは呼び出し単位で、全工程の費用上限ではない。
-2. **実モデルの評価データを蓄積する**: 承認済み予算で同一入力を複数回評価し、抽出漏れ・誤検出・見逃し・生成不正とコストを条件別に比較する。
-
-今回の実測は [固定応答の評価記録](evaluations/order-api-fixed-2026-10-25.json) に保存します。実API評価の未実施は #27 の実利用面の残項目です。
+公式CLIの採用・接続実装・CLI固定応答テスト・実利用評価は未完了です。上のHTTP固定応答と [2026-10-25の評価記録](evaluations/order-api-fixed-2026-10-25.json) は旧接続での回帰テストであり、公式CLIの接続・安全境界・生成品質を実証しません。#81で引き継ぎ、実利用未実施や条件未達のまま完了扱いにしません。
