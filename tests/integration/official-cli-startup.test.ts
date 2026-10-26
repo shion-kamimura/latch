@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  assertCliHost,
   officialCliArguments,
   SUPPORTED_CLI_VERSION,
 } from '../../src/plan/llm.js';
@@ -49,6 +50,7 @@ test.skipIf(!command || process.platform !== 'linux')(
         LANG: 'C',
         TMPDIR: root,
       };
+      assertCliHost(env);
       const run = (args: string[], input?: string) =>
         spawnSync(binary, args, {
           cwd,
