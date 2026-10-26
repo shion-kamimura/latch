@@ -21,7 +21,7 @@ pnpm exec vitest run --project e2e tests/e2e/evaluation.test.ts
 | ambiguous  | correct.patch＋Issue末尾に応答速度の曖昧な要求 | 割引verified、速度ambiguous | 曖昧な条件の証拠なし、要件全体ambiguous、0 |
 | impossible | correct.patch＋終了しない固定生成テスト        | execution-impossible        | timeout、部分結果、2                       |
 
-correctとbuggyは同一リポジトリの同一base・同一Issueを使用します。変更は未コミット差分として適用し、各ケース後に逆パッチで戻します。ambiguous以外は同じIssueです。各ケース1試行で、JSONとテキスト出力用にrunを各1回実行します。1ケース3要求、全体12要求がローカル固定応答CLIへ送られます。
+correctとbuggyは同一リポジトリの同一base・同一Issueを使用します。変更は未コミット差分として適用し、各ケース後に逆パッチで戻します。ambiguous以外は同じIssueです。各ケース1試行で、JSONとテキスト出力用にrunを各1回実行します。1ケース3回、全体12回の推論用execをローカル固定応答CLIへ送ります。版・アカウント状態確認の起動は別です。
 
 固定応答はIssueから独立に記述した割引端数のシナリオ1件だけを提案します。正解データ `fixtures/order-api/evaluation/cases.json` は全送信の終了後に評価側だけで読み、99にSAVE10を適用した期待値90と照合します。正解データを応答生成に使用しません。さらに追跡済み・変更済みの `evaluation/cases.json` にsentinelを置き、全要求の本文へ混入しないことを確認します。候補ファイル・未追跡ファイル・Git indexのハッシュ、HEADとstatusを前後比較します。
 
@@ -56,6 +56,10 @@ Node.js 26.12.1 / pnpm 12.14.0、Linuxで実行しました。基準のLatch com
 当時のClaude接続の実装commit `80e6ea79f21eeef151e46b7a30f7f776eae3b042` のビルド済みCLIで実行した [評価記録](evaluations/order-api-cli-fixed-2026-10-26.json) を保存しました。Node.js 26.12.0、各ケース1試行、計12回のローカル固定応答CLI起動です。correctはverified、buggyは既存テスト成功・生成テスト失敗、ambiguousは割引verified・速度ambiguous、impossibleはexecution-impossible・部分結果・終了コード2でした。全ケースでワークツリー不変を確認しました。実モデル要求0件、費用0 USD、token数は偽CLIが返さないため取得不能です。
 
 これは採用版の実ログインや生成品質の実測ではありません。未改変CLIの未ログイン起動確認は [公式CLI接続](official-cli.md#検証と未実施の評価) に分離しています。
+
+## Codex固定応答の実測（2026-10-26 UTC）
+
+実装commit `b18be9de41723ac26349c8b47d4029b752aae3df` のビルド済みCLIで [Codex版の評価記録](evaluations/order-api-codex-fixed-2026-10-26.json) を保存しました。偽Codex 0.163.0の公開account/readとexecを通し、correct/buggy/ambiguous/impossible各1試行、推論用exec合計12回です。正しい変更はverified、既存テストを通るbuggyは生成テストの失敗でfailed、速度の曖昧な条件はambiguous、実行不能は部分結果・終了コード2となりました。全ケースでワークツリー・index・HEAD不変と正解データ非送信を確認しました。実モデル要求0件、費用0 USD、token数は偽CLIが返さないため取得不能です。これは実際のPlusアカウントのモデル品質・利用量の評価ではありません。
 
 ## 公式CLIによる実利用評価（未実施）
 
