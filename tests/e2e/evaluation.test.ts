@@ -15,6 +15,9 @@ import {
   type TestRepository,
 } from '../helpers/repository.js';
 
+const unmanagedHost = fileURLToPath(
+  new URL('../helpers/unmanaged-host.mjs', import.meta.url),
+);
 const fixture = fileURLToPath(
   new URL('../../fixtures/order-api/', import.meta.url),
 );
@@ -113,17 +116,21 @@ function fingerprint(repo: TestRepository) {
 function run(args: string[], cwd: string, env: NodeJS.ProcessEnv) {
   return new Promise<{ status: number | null; stdout: string; stderr: string }>(
     (resolve, reject) => {
-      const child = spawn(process.execPath, [cli, ...args], {
-        cwd,
-        env: {
-          PATH: env.PATH,
-          HOME: env.HOME,
-          LANG: 'C',
-          LATCH_API_KEY: 'evaluation-dummy-key',
+      const child = spawn(
+        process.execPath,
+        ['--import', unmanagedHost, cli, ...args],
+        {
+          cwd,
+          env: {
+            PATH: env.PATH,
+            HOME: env.HOME,
+            LANG: 'C',
+            LATCH_API_KEY: 'evaluation-dummy-key',
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 30_000,
         },
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 30_000,
-      });
+      );
       let stdout = '';
       let stderr = '';
       child.stdout.on('data', (data: Buffer) => {

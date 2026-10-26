@@ -11,7 +11,7 @@ import type {
 } from './types.js';
 import { isInside, realPathOrNull } from '../verify/paths.js';
 
-export const SUPPORTED_PROVIDER = 'claude-code';
+export const SUPPORTED_PROVIDER = 'codex-cli';
 
 const MAX_PROFILE_BYTES = 64 * 1024;
 const DATA_CATEGORIES: readonly DataCategory[] = ['issue', 'diff', 'tests'];

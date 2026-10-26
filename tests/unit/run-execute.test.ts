@@ -52,12 +52,16 @@ describe('isolated suite execution', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'do-not-inherit');
     vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'do-not-inherit');
     vi.stubEnv('LATCH_API_KEY', 'do-not-inherit');
+    vi.stubEnv('OPENAI_API_KEY', 'do-not-inherit');
+    vi.stubEnv('CODEX_API_KEY', 'do-not-inherit');
+    vi.stubEnv('CODEX_ACCESS_TOKEN', 'do-not-inherit');
+    vi.stubEnv('CODEX_HOME', '/do-not-inherit');
     try {
       const workspace = workspaceWithRunner(null);
       writeFileSync(
         workspace.runnerPath,
         `
-        if (['ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN','LATCH_API_KEY'].some(key => process.env[key] !== undefined) || process.env.HOME !== ${JSON.stringify(join(workspace.root, 'home'))}) console.log('CREDENTIAL_LEAK');
+        if (['ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN','LATCH_API_KEY','OPENAI_API_KEY','CODEX_API_KEY','CODEX_ACCESS_TOKEN','CODEX_HOME'].some(key => process.env[key] !== undefined) || process.env.HOME !== ${JSON.stringify(join(workspace.root, 'home'))}) console.log('CREDENTIAL_LEAK');
         else console.log('CREDENTIALS_NOT_FORWARDED');
       `,
       );

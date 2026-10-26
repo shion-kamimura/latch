@@ -22,12 +22,12 @@ export function profileContent(
       id: 'test-profile',
       decision: overrides.decision ?? 'allowed',
       allowed: {
-        provider: overrides.provider ?? 'claude-code',
+        provider: overrides.provider ?? 'codex-cli',
         project,
         dataCategories: overrides.dataCategories ?? ['issue', 'diff', 'tests'],
       },
       connection: {
-        provider: overrides.provider ?? 'claude-code',
+        provider: overrides.provider ?? 'codex-cli',
         model: overrides.model ?? 'test-model',
       },
       ...(overrides.limits ? { limits: overrides.limits } : {}),

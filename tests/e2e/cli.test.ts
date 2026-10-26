@@ -13,6 +13,9 @@ import {
   type TestRepository,
 } from '../helpers/repository.js';
 
+const unmanagedHost = fileURLToPath(
+  new URL('../helpers/unmanaged-host.mjs', import.meta.url),
+);
 const cliPath = fileURLToPath(new URL('../../dist/cli.mjs', import.meta.url));
 const packageJson = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
@@ -225,11 +228,15 @@ function runBuiltAsync(
   error?: Error;
 }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [cliPath, ...args], {
-      cwd: root,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      ['--import', unmanagedHost, cliPath, ...args],
+      {
+        cwd: root,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
@@ -288,11 +295,15 @@ function repository(): TestRepository {
 }
 
 function runBuilt(args: string[], root: string) {
-  return spawnSync(process.execPath, [cliPath, ...args], {
-    cwd: root,
-    encoding: 'utf8',
-    timeout: 10_000,
-  });
+  return spawnSync(
+    process.execPath,
+    ['--import', unmanagedHost, cliPath, ...args],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 10_000,
+    },
+  );
 }
 
 afterEach(() => {

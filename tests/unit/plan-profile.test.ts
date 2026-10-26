@@ -53,7 +53,7 @@ describe('planning permission profile', () => {
       id: 'test-profile',
       decision: 'allowed',
       allowed: {
-        provider: 'claude-code',
+        provider: 'codex-cli',
         project,
         dataCategories: ['issue', 'diff', 'tests'],
       },
@@ -113,7 +113,7 @@ describe('planning permission profile', () => {
         '/tmp/profile.json',
       ),
     );
-    expect(error.message).toContain('claude-code');
+    expect(error.message).toContain('codex-cli');
   });
 
   test('allows the same scope repeatedly without confirmation', () => {
@@ -123,7 +123,7 @@ describe('planning permission profile', () => {
       '/tmp/profile.json',
     );
     const scope = {
-      provider: 'claude-code',
+      provider: 'codex-cli',
       project,
       dataCategories: ['issue', 'diff', 'tests'] as const,
     };
@@ -135,7 +135,7 @@ describe('planning permission profile', () => {
   test('denies and revokes before any send even when another scope matches', () => {
     const project = temporary().root;
     const scope = {
-      provider: 'claude-code',
+      provider: 'codex-cli',
       project,
       dataCategories: ['issue', 'diff', 'tests'] as const,
     };
@@ -164,7 +164,7 @@ describe('planning permission profile', () => {
 
     expect(() =>
       authorizePlanningScope(profile, {
-        provider: 'claude-code',
+        provider: 'codex-cli',
         project: temporary().root,
         dataCategories: ['diff'],
       }),
@@ -172,7 +172,7 @@ describe('planning permission profile', () => {
 
     expect(() =>
       authorizePlanningScope(profile, {
-        provider: 'claude-code',
+        provider: 'codex-cli',
         project,
         dataCategories: ['diff', 'issue'],
       }),
@@ -190,7 +190,7 @@ describe('planning permission profile', () => {
       {
         ...JSON.parse(profileContent(project)),
         connection: {
-          provider: 'claude-code',
+          provider: 'codex-cli',
           model: 'test',
           endpoint: 'https://example.test',
         },
@@ -198,7 +198,7 @@ describe('planning permission profile', () => {
       {
         ...JSON.parse(profileContent(project)),
         connection: {
-          provider: 'claude-code',
+          provider: 'codex-cli',
           model: 'test',
           apiKeyEnv: 'SECRET',
         },
