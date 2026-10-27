@@ -26,6 +26,32 @@ afterEach(() => {
 });
 
 describe('Vitest candidate discovery', () => {
+  test('discovers candidates beyond the former file, per-file, and total ceilings', () => {
+    const directory = temporary();
+    for (let i = 0; i < 125; i++)
+      write(
+        directory.root,
+        `tests/${i}.test.ts`,
+        Array.from(
+          { length: 45 },
+          (_, j) => `test('case-${i}-${j}', () => {});`,
+        ).join('\n'),
+      );
+    write(
+      directory.root,
+      'tests/large.test.ts',
+      ' '.repeat(270_000) + "test('large-file-sentinel', () => {});",
+    );
+    const result = discoverVitestCandidates(directory.root);
+    expect(result.scannedFiles).toBe(126);
+    expect(result.candidates).toHaveLength(125 * 45 + 1);
+    expect(
+      result.candidates.some(
+        (candidate) => candidate.name === 'large-file-sentinel',
+      ),
+    ).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
   test('reads test names without executing test files', () => {
     const directory = temporary();
     const marker = join(directory.root, 'executed.marker');

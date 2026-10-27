@@ -246,7 +246,8 @@ export async function runVerification(
 
       while (
         result.status === 'invalid-generated-test' &&
-        requestCount < profile.limits.maxRequests &&
+        (profile.limits.maxRequests === null ||
+          requestCount < profile.limits.maxRequests) &&
         attempt < settings.limits.maxRepairAttempts
       ) {
         const condition = conditions.get(current.conditionId)!;

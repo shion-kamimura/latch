@@ -1,3 +1,4 @@
+import { formatLimit } from '../limits.js';
 import type {
   ExtractedRequirement,
   PlanState,
@@ -96,8 +97,8 @@ export function renderPlanText(plan: RequirementPlan): string {
     '',
     'LLM',
     `  model: ${plan.llm.model}`,
-    `  呼び出し回数: ${plan.llm.requestCount} / 上限 ${plan.llm.maxRequests}`,
-    `  timeout: ${plan.llm.timeoutMs}ms`,
+    `  呼び出し回数: ${plan.llm.requestCount} / 上限 ${formatLimit(plan.llm.maxRequests)}`,
+    `  timeout: ${formatLimit(plan.llm.timeoutMs, 'ms')}`,
     '',
   ];
 

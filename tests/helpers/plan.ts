@@ -8,7 +8,7 @@ export interface ProfileOverrides {
   project?: string;
   dataCategories?: string[];
   model?: string;
-  limits?: Record<string, number>;
+  limits?: Record<string, number | null>;
   extra?: Record<string, unknown>;
 }
 

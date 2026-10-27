@@ -58,10 +58,10 @@ export interface ExistingTestCandidate {
 }
 
 export interface PlanningLimits {
-  readonly maxRequests: number;
-  readonly timeoutMs: number;
-  readonly maxOutputBytes: number;
-  readonly maxInputCharacters: number;
+  readonly maxRequests: number | null;
+  readonly timeoutMs: number | null;
+  readonly maxOutputBytes: number | null;
+  readonly maxInputCharacters: number | null;
 }
 
 export type DependencyPreparationMode = 'runner' | 'offline' | 'registry';
@@ -75,11 +75,11 @@ export interface ExecutionSettings {
     readonly allowedDestinations: readonly string[];
   };
   readonly limits: {
-    readonly timeoutMs: number;
-    readonly maxMemoryMb: number;
-    readonly maxOutputBytes: number;
-    readonly maxGeneratedFiles: number;
-    readonly maxGeneratedFileBytes: number;
+    readonly timeoutMs: number | null;
+    readonly maxMemoryMb: number | null;
+    readonly maxOutputBytes: number | null;
+    readonly maxGeneratedFiles: number | null;
+    readonly maxGeneratedFileBytes: number | null;
     readonly maxRepairAttempts: number;
   };
 }
@@ -146,8 +146,8 @@ export interface RequirementPlan {
     readonly provider: string;
     readonly model: string;
     readonly requestCount: number;
-    readonly maxRequests: number;
-    readonly timeoutMs: number;
+    readonly maxRequests: number | null;
+    readonly timeoutMs: number | null;
   };
   readonly requirements: readonly ExtractedRequirement[];
   readonly testCandidates: readonly ExistingTestCandidate[];

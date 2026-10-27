@@ -111,7 +111,7 @@ node dist/cli.mjs plan --base origin/main --issue-file fixtures/order-api/issue.
 
 送信にはワークツリー外の利用者管理のversion 2許可profileと、公式CLIでのログインが必要です。初回はCodex CLI 0.163.0・Linux（WSL 2上のUbuntuを含む）・ChatGPT Plus/Proアカウント・CLI設定・管理者設定のない環境に限定します。専用CODEX_HOMEを使う手順は [公式CLI接続](docs/official-cli.md) を参照してください。`codex login` は利用者が公式CLIで行ってください。Latchはキーやトークンを要求・読取・保存・コピーせず、ログインと通信を公式CLIへ委譲します。profileはprovider・project・データ区分を検証し、拒否・取り消し・範囲拡大・対応条件の不一致では推論前に停止します。旧version 1、endpoint、apiKeyEnvは移行案内付きで拒否し、API接続へ戻りません。設定例は [要件計画](docs/requirement-planning.md#許可profile)、公式情報と権限制限は [公式CLI接続](docs/official-cli.md) を参照してください。
 
-WSL 2での準備、コードレビューの操作、外部送信・実行の制限、結果の読み方は [初めてのコードレビュー](docs/review-walkthrough.md) を参照してください。WSL上の実機検証と実Plus評価は未実施です。
+WSL 2での準備、コードレビューの操作、外部送信・実行の制限、結果の読み方は [初めてのコードレビュー](docs/review-walkthrough.md) を参照してください。WSL上の実機検証と実Plus評価は未実施です。時間・要求回数・入出力量・テスト実行量は既定でLatch側の上限なしとし、必要な場合だけprofileで指定します。自動修復は条件ごとに既定1回（変更可能）です。認証情報・対象ワークツリーの保護は維持します。
 
 自動テストは固定したLLM応答を使い、実ログインでの抽出品質は評価していません。テスト生成・実行・証拠収集は `latch run` で実装し、隔離方式・安全境界・依存準備・通信制御・状態の区別は [生成テストの隔離実行と証拠収集](docs/isolated-execution.md) を参照してください。利用方法・許可profile・データ契約・確認と再計画の手順は [要件抽出と検証シナリオ計画](docs/requirement-planning.md) を参照してください。
 

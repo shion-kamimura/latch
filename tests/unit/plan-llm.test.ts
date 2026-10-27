@@ -67,6 +67,19 @@ afterEach(() => {
   for (const directory of directories.splice(0)) directory.cleanup();
 });
 describe('Codex CLI connection', () => {
+  test('accepts inputs and outputs above the former hard ceilings when no ceiling is selected', async () => {
+    const { cli, request, profile } = setup();
+    const payload = 'x'.repeat(1_100_000);
+    cli.configure({ response: { payload } });
+    const result = await callPlanningLlm({
+      profile,
+      system: request.system,
+      user: 'u'.repeat(210_000),
+      env: request.env,
+    });
+    expect(JSON.parse(result.content).payload).toBe(payload);
+    expect(cli.requests()[0]?.input).toHaveLength(210_000);
+  });
   test.each([
     '6.8.0-ubuntu',
     '6.6.87.2-microsoft-standard-WSL2',
@@ -277,7 +290,10 @@ describe('Codex CLI connection', () => {
   test('cancels the running group and cleans up', async () => {
     const { cli, request } = setup();
     cli.configure({ sleep: 10000 });
-    const pending = invokeOfficialCli(request).catch((error: unknown) => error);
+    const pending = invokeOfficialCli({
+      ...request,
+      limits: { ...request.limits, timeoutMs: null },
+    }).catch((error: unknown) => error);
     const start = Date.now();
     while (cli.requests().length === 0 && Date.now() - start < 2000)
       await new Promise((resolve) => setTimeout(resolve, 10));

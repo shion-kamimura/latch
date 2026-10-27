@@ -152,7 +152,7 @@ function invalidResponse(): never {
 function parseTests(
   content: string,
   allowedConditionIds: ReadonlySet<string>,
-  maxBytes: number,
+  maxBytes: number | null,
 ): { conditionId: string; name: string; rationale: string; code: string }[] {
   const parsed = parseJson(content);
   if (!isRecord(parsed) || !Array.isArray(parsed.tests)) invalidResponse();
@@ -179,7 +179,7 @@ function parseTests(
     if (
       typeof code !== 'string' ||
       code.trim().length === 0 ||
-      Buffer.byteLength(code, 'utf8') > maxBytes ||
+      (maxBytes !== null && Buffer.byteLength(code, 'utf8') > maxBytes) ||
       code.includes('\u0000')
     ) {
       invalidResponse();
@@ -237,9 +237,9 @@ export async function generateTests(
     };
   }
   const maxBytes =
-    context.profile.execution?.limits.maxGeneratedFileBytes ?? 100_000;
-  const maxFiles = context.profile.execution?.limits.maxGeneratedFiles ?? 20;
-  if (conditions.length > maxFiles) {
+    context.profile.execution?.limits.maxGeneratedFileBytes ?? null;
+  const maxFiles = context.profile.execution?.limits.maxGeneratedFiles ?? null;
+  if (maxFiles !== null && conditions.length > maxFiles) {
     throw new RequirementPlanError(
       `生成対象の条件数（${conditions.length}）が上限（${maxFiles}）を超えています。`,
       '計画を分割するか、利用者管理の許可profileで上限を拡大してください。',
@@ -280,7 +280,7 @@ export async function repairGeneratedTest(
   errorLog: string,
 ): Promise<{ test: GeneratedTest; requestCount: number }> {
   const maxBytes =
-    context.profile.execution?.limits.maxGeneratedFileBytes ?? 100_000;
+    context.profile.execution?.limits.maxGeneratedFileBytes ?? null;
   const response = await callPlanningLlm({
     profile: context.profile,
     output: 'tests',

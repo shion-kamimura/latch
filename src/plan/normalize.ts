@@ -11,11 +11,6 @@ import type {
 } from './types.js';
 import { sha256 } from '../verify/files.js';
 
-const MAX_REQUIREMENTS = 60;
-const MAX_CONDITIONS = 30;
-const MAX_SCENARIOS = 60;
-const MAX_TEXT = 4_000;
-
 export interface NormalizeContext {
   readonly issuePath: string | null;
   readonly issueLineCount: number;
@@ -62,16 +57,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function text(value: unknown, field: string): string {
+function text(value: unknown): string {
   if (typeof value !== 'string') {
     responseError();
   }
   const normalized = value.trim();
   if (normalized.length === 0 || normalized.includes('\u0000')) {
     responseError();
-  }
-  if (field.length > 0 && normalized.length > MAX_TEXT) {
-    return normalized.slice(0, MAX_TEXT);
   }
   return normalized;
 }
@@ -80,17 +72,17 @@ function optionalText(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string') responseError();
   const normalized = value.trim();
-  return normalized.length === 0 ? null : normalized.slice(0, MAX_TEXT);
+  return normalized.length === 0 ? null : normalized;
 }
 
-function stringArray(value: unknown, field: string): string[] {
+function stringArray(value: unknown): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) responseError();
-  return value.map((entry) => text(entry, field));
+  return value.map((entry) => text(entry));
 }
 
-function array(value: unknown, maximum: number): unknown[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > maximum) {
+function array(value: unknown): unknown[] {
+  if (!Array.isArray(value) || value.length === 0) {
     responseError();
   }
   return value;
@@ -147,7 +139,7 @@ function checkOrigin(source: RawSource, value: RequirementOrigin): void {
 function scenario(value: unknown): RawScenario {
   if (!isRecord(value)) responseError();
   return {
-    description: text(value.description, 'description'),
+    description: text(value.description),
     rationale: optionalText(value.rationale) ?? '',
   };
 }
@@ -160,10 +152,7 @@ function condition(value: unknown, context: NormalizeContext): RawCondition {
       (source.kind === 'issue' ? 'issue-explicit' : 'diff-inferred'),
   );
   checkOrigin(source, conditionOrigin);
-  const candidateIds = stringArray(
-    value.existingTestCandidateIds,
-    'existingTestCandidateIds',
-  );
+  const candidateIds = stringArray(value.existingTestCandidateIds);
   for (const id of candidateIds) {
     if (!context.testCandidates.some((candidate) => candidate.id === id)) {
       responseError();
@@ -173,9 +162,9 @@ function condition(value: unknown, context: NormalizeContext): RawCondition {
   if (rawScenarios !== undefined && !Array.isArray(rawScenarios)) {
     responseError();
   }
-  const scenarios = (rawScenarios ?? []).slice(0, MAX_SCENARIOS);
+  const scenarios = rawScenarios ?? [];
   return {
-    text: text(value.text, 'text'),
+    text: text(value.text),
     source,
     origin: conditionOrigin,
     ambiguity: optionalText(value.ambiguity),
@@ -193,11 +182,11 @@ function requirement(
   const requirementOrigin = origin(value.origin);
   checkOrigin(source, requirementOrigin);
   return {
-    text: text(value.text, 'text'),
+    text: text(value.text),
     source,
     origin: requirementOrigin,
     ambiguity: optionalText(value.ambiguity),
-    conditions: array(value.conditions, MAX_CONDITIONS).map((entry) =>
+    conditions: array(value.conditions).map((entry) =>
       condition(entry, context),
     ),
   };
@@ -214,11 +203,11 @@ export function normalizeLlmResponse(
 } {
   const raw = parseJson(content);
   if (!isRecord(raw)) responseError();
-  const rawRequirements = array(raw.requirements, MAX_REQUIREMENTS).map(
-    (entry) => requirement(entry, context),
+  const rawRequirements = array(raw.requirements).map((entry) =>
+    requirement(entry, context),
   );
-  const unverified = stringArray(raw.unverified, 'unverified');
-  const notes = stringArray(raw.notes, 'notes');
+  const unverified = stringArray(raw.unverified);
+  const notes = stringArray(raw.notes);
 
   const usedIds = new Set<string>();
   const matched = new Map<string, string[]>();

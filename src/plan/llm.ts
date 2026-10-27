@@ -1,4 +1,5 @@
 import { isInside } from '../verify/paths.js';
+import { startTimeout } from '../limits.js';
 import { spawn } from 'node:child_process';
 import {
   lstatSync,
@@ -157,8 +158,8 @@ function execute(
   args: readonly string[],
   cwd: string,
   env: NodeJS.ProcessEnv,
-  timeoutMs: number,
-  maxBytes: number,
+  timeoutMs: number | null,
+  maxBytes: number | null,
   input = '',
   accountRpc = false,
 ): Promise<ProcessResult> {
@@ -192,13 +193,13 @@ function execute(
     };
     process.once('SIGINT', cancel);
     process.once('SIGTERM', cancel);
-    const timer = setTimeout(() => {
+    const stopTimer = startTimeout(timeoutMs, () => {
       failure = '公式CLIの応答がタイムアウトしました。';
       kill();
-    }, timeoutMs);
+    });
     child.stdout.on('data', (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > maxBytes) {
+      if (maxBytes !== null && bytes > maxBytes) {
         failure = '公式CLIの出力が上限を超えました。';
         kill();
       } else {
@@ -241,7 +242,7 @@ function execute(
     // Errors can contain account details: never forward stderr.
     child.stderr.on('data', (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > maxBytes) {
+      if (maxBytes !== null && bytes > maxBytes) {
         failure = '公式CLIの出力が上限を超えました。';
         kill();
       }
@@ -263,7 +264,7 @@ function execute(
           : '公式CLIを起動できませんでした。';
     });
     child.once('close', (code) => {
-      clearTimeout(timer);
+      stopTimer();
       process.removeListener('SIGINT', cancel);
       process.removeListener('SIGTERM', cancel);
       if (failure) {
@@ -335,11 +336,15 @@ export const invokeOfficialCli: PlanningCli = async (request) => {
   const env = cliEnvironment(request.env);
   env.CODEX_HOME = assertCliHost(env, request.project);
   const directory = mkdtempSync(join(tmpdir(), 'latch-cli-'));
-  // One deadline includes version and auth checks, without automatic retries.
-  const deadline = Date.now() + request.limits.timeoutMs;
+  // An explicitly chosen deadline includes preflight. No deadline by default.
+  const deadline =
+    request.limits.timeoutMs === null
+      ? null
+      : Date.now() + request.limits.timeoutMs;
   const run = (args: string[], input = '', accountRpc = false) => {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) fail('公式CLIの応答がタイムアウトしました。');
+    const remaining = deadline === null ? null : deadline - Date.now();
+    if (remaining !== null && remaining <= 0)
+      fail('公式CLIの応答がタイムアウトしました。');
     return execute(
       args,
       directory,
@@ -419,8 +424,9 @@ export async function callPlanningLlm(
   options: LlmCallOptions,
 ): Promise<LlmCallResult> {
   if (
+    options.profile.limits.maxInputCharacters !== null &&
     options.system.length + options.user.length >
-    options.profile.limits.maxInputCharacters
+      options.profile.limits.maxInputCharacters
   )
     fail('公式CLIへ渡す入力が上限を超えています。');
   const content = await (options.invokeCli ?? invokeOfficialCli)({

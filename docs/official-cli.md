@@ -74,7 +74,7 @@ Node.js・pnpm・Git・CodexはUbuntu側に導入し、リポジトリ・HOME・
 - `exec --ignore-user-config --ignore-rules --strict-config --ephemeral --skip-git-repo-check --json --output-schema ...`を使う。公開状態確認のapp-serverにはignore-user-configがないため、前段でCLI設定の存在も拒否する。
 - 環境はHOME・CODEX_HOME・PATH・言語・一時領域・標準proxy/CA設定だけに限定する。OPENAI_API_KEY、CODEX_API_KEY、CODEX_ACCESS_TOKEN、NODE_OPTIONS等を継承しない。対象テストには別の空HOMEを渡し、CODEX_HOMEも渡さない。
 
-[製品方針](product-vision.md#自前実装を最小化する原則)に従い、認証・通信・資格情報の保存と更新・モデル実行・構造化出力は公式CLIへ委譲する。Latchは送信許可、入力の固定、生成結果と出典の検証、隔離実行、要件・証拠レポートを持つ。キーの識別表示を読まずにアカウント状態を確認するため、tokenを返さない短い固定の公開RPCを使う。汎用RPCクライアントや独自認証は持たない。期限・出力上限・キャンセルとプロセスグループ終了はLatchの実行契約なので標準のNode.js spawnで扱う。
+[製品方針](product-vision.md#自前実装を最小化する原則)に従い、認証・通信・資格情報の保存と更新・モデル実行・構造化出力は公式CLIへ委譲する。Latchは送信許可、入力の固定、生成結果と出典の検証、隔離実行、要件・証拠レポートを持つ。キーの識別表示を読まずにアカウント状態を確認するため、tokenを返さない短い固定の公開RPCを使う。汎用RPCクライアントや独自認証は持たない。任意に指定された期限・出力上限・キャンセルとプロセスグループ終了はLatchの実行契約なので標準のNode.js spawnで扱う。
 
 既知の認証パス（`.codex/`・`.claude/`・`.env*`・鍵等）と正解データを入力・候補探索・隔離コピーから除外し、認証パスをIssue入力にも使わせない。これは任意のソース中の秘密を検知する機能ではない。送信入力へ秘密を含めない。
 
@@ -82,7 +82,9 @@ Node.js・pnpm・Git・CodexはUbuntu側に導入し、リポジトリ・HOME・
 
 profileは [version 2](requirement-planning.md#許可profile)、providerは `codex-cli`。version 1、endpoint/apiKeyEnv/maxOutputTokens等の旧API設定は移行案内付きで拒否し、HTTP・キー解決を削除済み。API方式やClaudeへのフォールバックはない。
 
-`maxRequests`はplan/runごとのCLI推論起動数（1〜3）。版・アカウント状態確認は推論要求に数えない。CLI内部のHTTP再試行・model turn数・token数・費用の上限とは異なる。Latchは自動再試行せず、runは生成と修復の合計上限を守る。各起動単位の期限（1,000〜120,000ms）は版・状態確認も含む。タイムアウト・キャンセル・出力超過でプロセスグループを終了し、一時領域を削除する。
+時間・要求回数・入出力サイズは既定でLatch側の上限なしとし、profileの項目省略またはnullで表す。指定する場合は正の安全な整数をそのまま使い、最大120秒・3回等へ丸めない。maxRequestsはplan/runごとの推論用CLI起動数で、版・アカウント状態確認は数えない。CLI内部のHTTP再試行・model turn数・token数・費用の上限とは異なる。runの自動修復は条件ごとに既定1回で、maxRepairAttemptsで任意の非負整数へ変更できる。Latchによる無限の自動再試行は追加しない。
+
+期限を指定した場合は版・状態確認も含めて適用する。期限なしでもSIGINT/SIGTERMによるキャンセル時はプロセスグループを終了し、一時領域を削除する。時間・出力上限を指定した場合の超過も同様に終了する。必須上限を外しても送信許可・モデル用ツールの権限・資格情報保護は変えない。詳細は [上限の設定](requirement-planning.md#呼び出し量時間再試行の上限) を参照する。
 
 未導入・対応条件不一致・未ログイン・認証失敗・利用上限・不正JSON/構造化出力・タイムアウト・キャンセルを区別して終了コード2で停止する。未知のエラーは汎用の実行失敗とし、raw stdout/stderr・アカウント情報を出力しない。
 
@@ -99,4 +101,4 @@ LATCH_OFFICIAL_CLI=/absolute/path/to/codex \
 
 新しい空HOMEを使用し、公開account/readで未ログイン、config/readでdeny profileと機能制限、thread/startで有効profile・ネットワーク制限・指示ファイル未読込を確認する。turn/startは送らない。対応外のシステム設定があるホストではskipする。通常CIは実CLIを要求せず、この任意検査をskipする。導入済み0.163.0では、空HOMEからの公開RPCによるprofileコンパイルと、最終機能設定のfeatures listによる解析（終了0）を別途確認した。これは実Plusアカウントの検証ではない。
 
-実際のPlusログインでのplan/run、敵対的入力への動作、生成品質・誤検出/見逃し・利用量は未評価。利用者が指定した要求数・時間・利用量の上限が決まってから [評価手順](order-api-evaluation.md)で実施する。旧1 USD API予算は流用しない。現在の実モデル要求は0件で、#81を完了・自動closeしない。
+実際のPlusログインでのplan/run、敵対的入力への動作、生成品質・誤検出/見逃し・利用量は未評価。実ログイン可能な対応環境を用意し、利用者の指定した利用範囲（任意上限の有無を含む）を記録してから [評価手順](order-api-evaluation.md)で実施する。旧1 USD API予算は流用しない。現在の実モデル要求は0件で、#81を完了・自動closeしない。

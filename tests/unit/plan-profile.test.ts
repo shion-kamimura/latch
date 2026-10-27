@@ -42,7 +42,51 @@ afterEach(() => {
 });
 
 describe('planning permission profile', () => {
-  test('parses an allowed profile and applies bounded defaults', () => {
+  test.each([undefined, null])(
+    'does not impose optional resource ceilings for %s',
+    (value) => {
+      const profile = parsePlanningProfile(
+        profileContent(
+          temporary().root,
+          value === undefined
+            ? {}
+            : {
+                limits: {
+                  timeoutMs: value ?? null,
+                  maxRequests: value ?? null,
+                },
+                extra: {
+                  execution: { limits: { maxOutputBytes: value ?? null } },
+                },
+              },
+        ),
+        '/tmp/profile.json',
+      );
+      expect(Object.values(profile.limits)).toEqual([null, null, null, null]);
+      expect(profile.execution?.limits).toEqual({
+        timeoutMs: null,
+        maxMemoryMb: null,
+        maxOutputBytes: null,
+        maxGeneratedFiles: null,
+        maxGeneratedFileBytes: null,
+        maxRepairAttempts: 1,
+      });
+    },
+  );
+  test.each([-1, 0, 1.5, '30000', Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid resource limits instead of replacing %s',
+    (timeoutMs) => {
+      expect(() =>
+        parsePlanningProfile(
+          profileContent(temporary().root, {
+            extra: { limits: { timeoutMs } },
+          }),
+          '/tmp/profile.json',
+        ),
+      ).toThrow('正の整数または null');
+    },
+  );
+  test('uses caller-selected planning limits without clamping', () => {
     const project = temporary().root;
     const profile = parsePlanningProfile(
       profileContent(project, { limits: { maxRequests: 99, timeoutMs: 1 } }),
@@ -61,8 +105,8 @@ describe('planning permission profile', () => {
         model: 'test-model',
       },
       limits: {
-        maxRequests: 3,
-        timeoutMs: 1_000,
+        maxRequests: 99,
+        timeoutMs: 1,
       },
     });
   });
@@ -212,7 +256,7 @@ describe('planning permission profile', () => {
     }
   });
 
-  test('parses execution settings and clamps limits', () => {
+  test('uses caller-selected execution limits without clamping', () => {
     const project = temporary().root;
     const profile = parsePlanningProfile(
       profileContent(project, {
@@ -244,12 +288,12 @@ describe('planning permission profile', () => {
       },
       network: { allowedDestinations: ['https://api.example.test'] },
       limits: {
-        timeoutMs: 300_000,
-        maxMemoryMb: 128,
-        maxOutputBytes: 1_000_000,
-        maxGeneratedFiles: 30,
-        maxGeneratedFileBytes: 1_000,
-        maxRepairAttempts: 2,
+        timeoutMs: 999_999,
+        maxMemoryMb: 1,
+        maxOutputBytes: 9_999_999,
+        maxGeneratedFiles: 100,
+        maxGeneratedFileBytes: 1,
+        maxRepairAttempts: 9,
       },
     });
   });

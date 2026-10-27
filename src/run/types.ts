@@ -128,9 +128,9 @@ export interface IsolationReport {
   readonly copiedFiles: number;
   readonly excluded: readonly string[];
   readonly limits: {
-    readonly timeoutMs: number;
-    readonly maxMemoryMb: number;
-    readonly maxOutputBytes: number;
+    readonly timeoutMs: number | null;
+    readonly maxMemoryMb: number | null;
+    readonly maxOutputBytes: number | null;
   };
   readonly cleanup: {
     readonly status: 'removed' | 'failed';
@@ -178,7 +178,7 @@ export interface RunReport {
     readonly provider: string;
     readonly model: string;
     readonly requestCount: number;
-    readonly maxRequests: number;
+    readonly maxRequests: number | null;
     readonly repairAttempts: number;
     readonly maxRepairAttempts: number;
     readonly requestedConditions: number;

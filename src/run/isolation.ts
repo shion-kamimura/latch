@@ -2,7 +2,6 @@ import { isCredentialPath } from '../verify/paths.js';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
-  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -18,8 +17,6 @@ import { RequirementPlanError } from '../plan/errors.js';
 import type { ExecutionSettings } from '../plan/types.js';
 import { toPosixPath, isInside } from '../verify/paths.js';
 import type { IsolationWorkspace, VerificationInputSnapshot } from './types.js';
-
-const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
 
 function isolationError(message: string, guidance: string): never {
   throw new RequirementPlanError(message, guidance);
@@ -102,8 +99,8 @@ function runCommand(
     cwd: string;
     env: NodeJS.ProcessEnv;
     input?: string;
-    timeoutMs: number;
-    maxOutputBytes: number;
+    timeoutMs: number | null;
+    maxOutputBytes: number | null;
   },
 ): {
   status: number | null;
@@ -118,8 +115,11 @@ function runCommand(
     env: options.env,
     input: options.input,
     encoding: 'utf8',
-    timeout: options.timeoutMs,
-    maxBuffer: Math.max(options.maxOutputBytes * 2, 1024 * 1024),
+    timeout: options.timeoutMs ?? undefined,
+    maxBuffer:
+      options.maxOutputBytes === null
+        ? Infinity
+        : Math.max(options.maxOutputBytes * 2, 1024 * 1024),
     windowsHide: true,
   });
   return {
@@ -317,12 +317,6 @@ function createWorkspace(
       isolationError(
         '入力スナップショットのアーカイブが見つかりませんでした。',
         'Gitの状態を確認してから再実行してください。',
-      );
-    }
-    if (lstatSync(tarPath).size > MAX_ARCHIVE_BYTES) {
-      isolationError(
-        '入力スナップショットが大きすぎるため隔離コピーを作成できません。',
-        '検証対象を小さくするか、resource上限を見直してください。',
       );
     }
     const extract = runCommand('tar', ['-x', '-f', tarPath, '-C', workDir], {

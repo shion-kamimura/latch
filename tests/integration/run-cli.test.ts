@@ -366,14 +366,17 @@ describe('run command isolated execution', () => {
     },
   );
 
-  test.each([1, 2])(
-    'does not treat invalid generated tests as product failures with a %i-call budget',
+  test.each([1, 2, 5, null])(
+    'does not treat invalid generated tests as product failures with a %s-call budget',
     async (maxRequests) => {
       const repo = repositoryWithChange('correct');
       const planPath = planFile(repo, temporary());
       const profile = profileDirectory().write(
         'profile.json',
-        profileContent(repo.root, { limits: { maxRequests } }),
+        profileContent(repo.root, {
+          limits: { maxRequests },
+          extra: { execution: { limits: { maxRepairAttempts: 4 } } },
+        }),
       );
       const recorder = recordingCli(INVALID_GENERATED_CODE);
 
@@ -390,8 +393,8 @@ describe('run command isolated execution', () => {
         evidence: { kind: string; status: string }[];
         generation: { repairAttempts: number; maxRepairAttempts: number };
       };
-      expect(report.generation.repairAttempts).toBe(maxRequests - 1);
-      expect(report.generation.maxRepairAttempts).toBe(1);
+      expect(report.generation.repairAttempts).toBe((maxRequests ?? 5) - 1);
+      expect(report.generation.maxRepairAttempts).toBe(4);
       expect(
         report.evidence.find((item) => item.kind === 'generated')?.status,
       ).toBe('invalid-generated-test');
@@ -399,8 +402,9 @@ describe('run command isolated execution', () => {
       expect(report.conditions[0]?.notes.join('')).toContain(
         '製品不具合の証拠として扱いません',
       );
-      expect(recorder.bodies).toHaveLength(maxRequests);
+      expect(recorder.bodies).toHaveLength(maxRequests ?? 5);
     },
+    30_000,
   );
 
   test('fails closed without a profile and does not execute tests', async () => {

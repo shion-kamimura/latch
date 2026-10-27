@@ -123,6 +123,10 @@ describe('isolated suite execution', () => {
         '  );',
         '});',
         '',
+        "test('a normal test finishes beyond the former default deadline', async () => {",
+        '  await new Promise(resolve => setTimeout(resolve, 5_100));',
+        '  expect(true).toBe(true);',
+        '});',
       ].join('\n'),
     );
     const require = createRequire(import.meta.url);
@@ -143,7 +147,7 @@ describe('isolated suite execution', () => {
 
     const result = executeSuite({
       workspace,
-      settings: settingsWithTimeout(10_000),
+      settings: defaultExecutionSettings(),
       include: ['.latch/generated/blocked.test.ts'],
       name: 'blocked',
       kind: 'generated',
@@ -151,11 +155,11 @@ describe('isolated suite execution', () => {
     });
 
     expect(result.status).toBe('passed');
-    expect(result.evidence).toHaveLength(2);
+    expect(result.evidence).toHaveLength(3);
     expect(result.evidence.every((item) => item.status === 'passed')).toBe(
       true,
     );
-  });
+  }, 15_000);
 
   test('distinguishes a runner startup failure from an assertion failure', () => {
     const workspace = workspaceWithRunner(null);

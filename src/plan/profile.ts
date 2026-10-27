@@ -15,17 +15,12 @@ export const SUPPORTED_PROVIDER = 'codex-cli';
 
 const MAX_PROFILE_BYTES = 64 * 1024;
 const DATA_CATEGORIES: readonly DataCategory[] = ['issue', 'diff', 'tests'];
-const HARD_LIMITS: PlanningLimits = {
-  maxRequests: 3,
-  timeoutMs: 120_000,
-  maxOutputBytes: 1_000_000,
-  maxInputCharacters: 200_000,
-};
+// Resource ceilings are opt-in. null means no Latch-imposed limit.
 const DEFAULT_LIMITS: PlanningLimits = {
-  maxRequests: 2,
-  timeoutMs: 30_000,
-  maxOutputBytes: 200_000,
-  maxInputCharacters: 60_000,
+  maxRequests: null,
+  timeoutMs: null,
+  maxOutputBytes: null,
+  maxInputCharacters: null,
 };
 const CREDENTIAL_KEYS = new Set([
   'apikey',
@@ -118,43 +113,41 @@ function readDataCategories(value: unknown): DataCategory[] {
   return categories;
 }
 
-function boundedInteger(
-  value: unknown,
-  fallback: number,
-  minimum: number,
-  maximum: number,
-): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.min(maximum, Math.max(minimum, Math.floor(value)));
+function optionalLimit(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    profileError(
+      `許可profileの ${field} は正の整数または null で指定してください。`,
+      '未指定またはnullはLatch側の上限なしです。指定値は丸めずに使用します。',
+    );
+  }
+  return value;
+}
+
+function repairLimit(value: unknown): number {
+  if (value === undefined) return 1;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    profileError(
+      '許可profileのexecution.limits.maxRepairAttemptsは0以上の整数で指定してください。',
+      '自動修復は既定1回です。必要な回数を指定し、0なら修復しません。',
+    );
+  }
+  return value;
 }
 
 function readLimits(value: unknown): PlanningLimits {
   if (value === undefined) return DEFAULT_LIMITS;
   const limits = requireRecord(value, 'limits');
   return {
-    maxRequests: boundedInteger(
-      limits.maxRequests,
-      DEFAULT_LIMITS.maxRequests,
-      1,
-      HARD_LIMITS.maxRequests,
-    ),
-    timeoutMs: boundedInteger(
-      limits.timeoutMs,
-      DEFAULT_LIMITS.timeoutMs,
-      1_000,
-      HARD_LIMITS.timeoutMs,
-    ),
-    maxOutputBytes: boundedInteger(
+    maxRequests: optionalLimit(limits.maxRequests, 'limits.maxRequests'),
+    timeoutMs: optionalLimit(limits.timeoutMs, 'limits.timeoutMs'),
+    maxOutputBytes: optionalLimit(
       limits.maxOutputBytes,
-      DEFAULT_LIMITS.maxOutputBytes,
-      1_000,
-      HARD_LIMITS.maxOutputBytes,
+      'limits.maxOutputBytes',
     ),
-    maxInputCharacters: boundedInteger(
+    maxInputCharacters: optionalLimit(
       limits.maxInputCharacters,
-      DEFAULT_LIMITS.maxInputCharacters,
-      1_000,
-      HARD_LIMITS.maxInputCharacters,
+      'limits.maxInputCharacters',
     ),
   };
 }
@@ -163,11 +156,11 @@ const DEFAULT_EXECUTION: ExecutionSettings = {
   dependencies: { mode: 'runner', registry: null },
   network: { allowedDestinations: [] },
   limits: {
-    timeoutMs: 60_000,
-    maxMemoryMb: 512,
-    maxOutputBytes: 200_000,
-    maxGeneratedFiles: 20,
-    maxGeneratedFileBytes: 100_000,
+    timeoutMs: null,
+    maxMemoryMb: null,
+    maxOutputBytes: null,
+    maxGeneratedFiles: null,
+    maxGeneratedFileBytes: null,
     maxRepairAttempts: 1,
   },
 };
@@ -261,42 +254,24 @@ function readExecution(value: unknown): ExecutionSettings {
     dependencies: { mode, registry },
     network: { allowedDestinations },
     limits: {
-      timeoutMs: boundedInteger(
-        limits.timeoutMs,
-        DEFAULT_EXECUTION.limits.timeoutMs,
-        1_000,
-        300_000,
-      ),
-      maxMemoryMb: boundedInteger(
+      timeoutMs: optionalLimit(limits.timeoutMs, 'execution.limits.timeoutMs'),
+      maxMemoryMb: optionalLimit(
         limits.maxMemoryMb,
-        DEFAULT_EXECUTION.limits.maxMemoryMb,
-        128,
-        4_096,
+        'execution.limits.maxMemoryMb',
       ),
-      maxOutputBytes: boundedInteger(
+      maxOutputBytes: optionalLimit(
         limits.maxOutputBytes,
-        DEFAULT_EXECUTION.limits.maxOutputBytes,
-        1_000,
-        1_000_000,
+        'execution.limits.maxOutputBytes',
       ),
-      maxGeneratedFiles: boundedInteger(
+      maxGeneratedFiles: optionalLimit(
         limits.maxGeneratedFiles,
-        DEFAULT_EXECUTION.limits.maxGeneratedFiles,
-        1,
-        30,
+        'execution.limits.maxGeneratedFiles',
       ),
-      maxGeneratedFileBytes: boundedInteger(
+      maxGeneratedFileBytes: optionalLimit(
         limits.maxGeneratedFileBytes,
-        DEFAULT_EXECUTION.limits.maxGeneratedFileBytes,
-        1_000,
-        200_000,
+        'execution.limits.maxGeneratedFileBytes',
       ),
-      maxRepairAttempts: boundedInteger(
-        limits.maxRepairAttempts,
-        DEFAULT_EXECUTION.limits.maxRepairAttempts,
-        0,
-        2,
-      ),
+      maxRepairAttempts: repairLimit(limits.maxRepairAttempts),
     },
   };
 }

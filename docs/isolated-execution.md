@@ -31,7 +31,7 @@ MVPでは**固定入力の一時コピー + Node.jsのパーミッションモ�
 5. テスト通信は既定で遮断します（`--allow-net` を渡しません）。加えて、テスト実行前のsetupで`fetch`・`net`・`tls`・`http`・`https`・`dgram`の通信APIと`child_process`・`Worker`を無効化します。対象リポジトリや生成テストから`allowedDestinations`を追加しても有効になりません。
 6. 子プロセスへ渡す環境変数は `PATH`・`LANG`・`LC_ALL`・`TZ`・`HOME`・`TMPDIR`・`NO_COLOR`・`CI`・`NODE_ENV` だけです。Git資格情報・APIキー・SSH agent・Docker socket・ホストのホーム設定は渡しません。
 7. LLM呼び出しは対象ワークツリー外の空のcwdから公式CLIへ委譲し、対象コードの実行環境とは分離します。公式CLIだけが利用者のログインを解決し、対象テストへAPIキー・OAuthトークン変数・公式CLIのHOMEを渡しません。既知の認証パスは隔離コピーから除去します。接続の対応条件は [公式CLI接続](official-cli.md) を参照してください。
-8. 時間上限を超えた場合は子プロセスを終了し、「時間上限超過」として記録します。メモリは`--max-old-space-size`で上限を設け、CPUは実行時間の上限とプロセス終了で制約します。後片付けに失敗した場合はレポートへ記録します。
+8. 時間・メモリ・出力量のLatch独自上限は既定では設けません。時間を指定した場合は超過時に子プロセスを終了し、メモリを指定した場合だけ`--max-old-space-size`を付けます。Vitestのtest/hook timeoutも未指定なら0（無効）にします。後片付けに失敗した場合はレポートへ記録します。
 
 隔離のための一時領域を作れない、Node.jsのパーミッションモデルが使えない、依存準備やテストランナー起動に失敗する場合は、ホスト実行へ切り替えず「実行不能・判定不能」として停止します。
 
@@ -66,11 +66,11 @@ MVPでは**固定入力の一時コピー + Node.jsのパーミッションモ�
     "dependencies": { "mode": "runner", "registry": null },
     "network": { "allowedDestinations": [] },
     "limits": {
-      "timeoutMs": 60000,
-      "maxMemoryMb": 512,
-      "maxOutputBytes": 200000,
-      "maxGeneratedFiles": 20,
-      "maxGeneratedFileBytes": 100000,
+      "timeoutMs": null,
+      "maxMemoryMb": null,
+      "maxOutputBytes": null,
+      "maxGeneratedFiles": null,
+      "maxGeneratedFileBytes": null,
       "maxRepairAttempts": 1
     }
   }
@@ -85,9 +85,10 @@ MVPでは**固定入力の一時コピー + Node.jsのパーミッションモ�
 
 - 対象は「要件不明確」ではなく、不足シナリオを持つ条件です。
 - LLMへ送る内容は、条件・不足シナリオ、#22の評価専用データを除外した差分、既存Vitestテスト候補の名前・パスです。正解データや評価専用テストは送りません。
-- 生成テストはVitestの `test` / `it` と `vitest` からのimportを含む必要があります。条件数・ファイルサイズ・生成ファイル数には上限があります。
-- 構文不正やテストとして解釈できない生成物は、上限回数（既定1回、最大2回）だけLLMへ修正を依頼します。上限後も不正な場合は「生成テスト不正」として記録し、製品不具合の証拠にしません。
-- 生成テストの修正回数・実行回数・出力サイズ・タイムアウト・メモリ上限は許可profileの `execution.limits` で設定できます。CPUは実行時間の上限で制約します。
+- 生成テストはVitestの `test` / `it` と `vitest` からのimportを含む必要があります。条件数・生成ファイルサイズの数値上限は、利用者が指定した場合だけ適用します。
+- 構文不正やテストとして解釈できない生成物は、条件ごとの上限回数（既定1回、任意の0以上の安全な整数）だけLLMへ修正を依頼します。上限後も不正な場合は「生成テスト不正」として記録し、製品不具合の証拠にしません。
+- 生成テストの修正回数・出力サイズ・タイムアウト・メモリ・生成量は許可profileのexecution.limitsで設定します。修復以外は省略またはnullが上限なし、指定時は正の安全な整数です。値を旧上限へ丸めません。推論起動の合計上限はprofileのlimits.maxRequestsです。
+- 一時コピーの256 MiB制限と計画JSONの5 MiB制限も撤去しました。Node.js/OS/ディスク等の制約は残ります。上限なしの処理が終了しない場合は利用者が停止します。明示した時間上限にはNode.jsの同期プロセスAPIで表現できる範囲が適用されます。
 
 ## 状態と証拠
 

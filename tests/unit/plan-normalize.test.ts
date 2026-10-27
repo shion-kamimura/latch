@@ -36,6 +36,40 @@ function expectPlanError(callback: () => unknown): RequirementPlanError {
 }
 
 describe('LLM response normalization', () => {
+  test('preserves requirements and scenarios beyond former count and text limits', () => {
+    const longText = 'requirement '.repeat(500).trim();
+    const condition = {
+      text: longText,
+      source: { kind: 'issue', line: 1 },
+      ambiguity: null,
+      existingTestCandidateIds: [],
+      missingScenarios: Array.from({ length: 61 }, (_, i) => ({
+        description: `scenario-${i}`,
+        rationale: i === 0 ? longText : 'why',
+      })),
+    };
+    const requirements = Array.from({ length: 61 }, (_, i) => ({
+      text: `${i}-${longText}`,
+      origin: 'issue-explicit',
+      source: { kind: 'issue', line: 1 },
+      ambiguity: null,
+      conditions: Array.from({ length: i === 0 ? 31 : 1 }, () => condition),
+    }));
+    const result = normalizeLlmResponse(
+      response({ requirements, notes: [], unverified: [] }),
+      context,
+    );
+    expect(result.requirements).toHaveLength(61);
+    expect(result.requirements[0]?.text).toBe(`0-${longText}`);
+    expect(result.requirements[0]?.conditions).toHaveLength(31);
+    expect(result.requirements[0]?.conditions[0]?.text).toBe(longText);
+    expect(
+      result.requirements[0]?.conditions[0]?.missingScenarios,
+    ).toHaveLength(61);
+    expect(
+      result.requirements[0]?.conditions[0]?.missingScenarios[0]?.rationale,
+    ).toBe(longText);
+  });
   test('assigns stable IDs and keeps issue and diff origins distinct', () => {
     const content = response({
       requirements: [

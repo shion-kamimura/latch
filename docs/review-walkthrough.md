@@ -56,28 +56,16 @@ codex login
     "dataCategories": ["issue", "diff", "tests"]
   },
   "connection": { "provider": "codex-cli", "model": "gpt-5.4" },
-  "limits": {
-    "maxRequests": 1,
-    "timeoutMs": 120000,
-    "maxOutputBytes": 200000,
-    "maxInputCharacters": 60000
-  },
   "execution": {
     "dependencies": { "mode": "runner", "registry": null },
-    "network": { "allowedDestinations": [] },
-    "limits": {
-      "timeoutMs": 60000,
-      "maxMemoryMb": 512,
-      "maxOutputBytes": 200000,
-      "maxGeneratedFiles": 20,
-      "maxGeneratedFileBytes": 100000,
-      "maxRepairAttempts": 0
-    }
+    "network": { "allowedDestinations": [] }
   }
 }
 ```
 
-数値は例なので、実利用前に自分の上限として採用するか確認してください。`maxRequests: 1`はplanとrunでそれぞれ推論用CLIを最大1回起動する意味です。続けて使えば最大2回で、コマンドを再実行すると新たに利用枠を消費し得ます。CLI内部のHTTP要求・token数・料金の厳密な上限ではありません。Plusの利用枠に従います。
+この例は実行量の上限を省略しています。時間・推論起動数・入出力量・生成量・Latch独自のメモリ上限は設けず、完了を待ちます。必要なら [許可profile](requirement-planning.md#許可profile) のlimitsと [実行設定](isolated-execution.md#実行設定の例) で指定できます。nullでも上限なしを指定できます。以前のprofileに30秒等の明示値があれば、その値は残るため削除またはnullへ変更してください。
+
+自動修復だけは条件ごとに既定1回です。execution.limits.maxRepairAttemptsへ任意の0以上の整数を設定でき、旧最大2回の制限はありません。AIの契約上の利用枠・モデルやNode.js/OSの制約は残ります。plan/runの再実行では新たに利用枠を消費し得ます。終了しない処理はCtrl+C等で止めます。
 
 既定のrunner方式は対象の依存をインストールせず、LatchのVitestを使います。外部パッケージが必要なプロジェクトでは、そのままでは実行できない場合があります。offline/registry方式の条件は [依存準備](isolated-execution.md#依存準備) を参照してください。
 
@@ -161,7 +149,7 @@ AI用のCodexプロセスと、対象コードを動かすテストプロセス�
 | AI用Codex    | 明示入力からの計画・テストコード生成。公式CLIによる認証とモデル通信 | モデル用ツールのファイル読書き・ネットワークを拒否。シェル・Web検索・アプリ・フック・委譲等を無効化。権限拡大を許可しない |
 | AIへの指示源 | Latchが渡す明示入力                                                 | リポジトリのAGENTS.md・ホストスキル等の自動読込を制限。Issue内の「全ファイルを送れ」等を権限にしない                      |
 | テスト実行   | 一時コピーと実行に必要な依存の読取、一時領域への書込                | Node.jsの権限制限とsetupで通信・任意の子プロセス等を制限。公式CLIのHOME/CODEX_HOME・APIキー・SSH agent等を渡さない        |
-| 実行量       | profileで指定した範囲                                               | 推論起動数・入力/出力サイズ・時間・生成量・修復回数を制限。メモリはNode.jsのヒープ上限で、OS全体の厳密な上限ではない      |
+| 実行量       | profileで指定した範囲                                               | 時間・回数・入出力量・生成量等の必須上限を撤去。必要ならprofileで指定。自動修復は既定1回で変更可能                        |
 
 「AI用ツールのネットワーク拒否」は、公式CLI自身がOpenAIへモデル要求を送らないという意味ではありません。テスト通信は別に既定で遮断します。宛先単位の許可は未実装で、allowedDestinationsが空でなければ停止します。
 
@@ -181,4 +169,4 @@ LATCH_OFFICIAL_CLI="$(command -v codex)" \
   pnpm exec vitest run --project integration tests/integration/official-cli-startup.test.ts
 ```
 
-管理設定があるホスト等ではskipします。skipは合格ではありません。この検査が成功しても、実Plusアカウントによるplan/runと生成品質は別の検証です。実利用評価は [評価手順](order-api-evaluation.md) に従い、契約・要求数・時間・利用量の上限を決めて実施します。
+管理設定があるホスト等ではskipします。skipは合格ではありません。この検査が成功しても、実Plusアカウントによるplan/runと生成品質は別の検証です。実利用評価は [評価手順](order-api-evaluation.md) に従い、契約と利用範囲、任意上限の有無を記録して実施します。

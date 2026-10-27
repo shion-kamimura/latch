@@ -155,9 +155,12 @@ function taskSection(): string {
 
 export function buildPlanningPrompt(
   context: PromptContext,
-  maxCharacters: number,
+  maxCharacters: number | null,
 ): PlanningPrompt {
-  const maximum = Math.max(0, maxCharacters - SYSTEM_PROMPT.length);
+  const maximum =
+    maxCharacters === null
+      ? Infinity
+      : Math.max(0, maxCharacters - SYSTEM_PROMPT.length);
   const fullSections = [
     issueSection(context.issue),
     diffSection(context),
