@@ -55,7 +55,7 @@ Node.js 26.12.1 / pnpm 12.14.0、Linuxで実行しました。基準のLatch com
 
 当時のClaude接続の実装commit `80e6ea79f21eeef151e46b7a30f7f776eae3b042` のビルド済みCLIで実行した [評価記録](evaluations/order-api-cli-fixed-2026-10-26.json) を保存しました。Node.js 26.12.0、各ケース1試行、計12回のローカル固定応答CLI起動です。correctはverified、buggyは既存テスト成功・生成テスト失敗、ambiguousは割引verified・速度ambiguous、impossibleはexecution-impossible・部分結果・終了コード2でした。全ケースでワークツリー不変を確認しました。実モデル要求0件、費用0 USD、token数は偽CLIが返さないため取得不能です。
 
-これは採用版の実ログインや生成品質の実測ではありません。未改変CLIの未ログイン起動確認は [公式CLI接続](official-cli.md#検証と未実施の評価) に分離しています。
+これは採用版の実ログインや生成品質の実測ではありません。未改変CLIの未ログイン起動確認は [公式CLI接続](official-cli.md#検証と実利用評価) に分離しています。
 
 ## Codex固定応答の実測（2026-10-26 UTC）
 
@@ -110,7 +110,7 @@ git -C "$EVAL_ROOT/buggy" apply "$LATCH_ROOT/fixtures/order-api/changes/buggy.pa
 
 テキスト表示のためだけに有料runを追加しません。固定応答でテキスト/JSONの接続を検証し、実利用では同じ実行結果から確認します。対象ワークツリー・未追跡ファイル・Git indexの不変、正解データ非送信、生成テストへの資格情報非継承も記録します。
 
-## 現在の未達
+## 旧評価と未達の履歴
 
 公式CLIの採用・接続実装・CLI固定応答テストを実装しました。旧HTTPの [2026-10-25記録](evaluations/order-api-fixed-2026-10-25.json) は履歴として残します。現在のCLI固定応答回帰と、未改変バイナリの未ログイン起動確認は別です。実アカウントでcorrect候補のplan/run・レポート出力を確認しましたが、誤検出の改善・buggy比較・敵対的入力・利用量の評価が残っています。#81で引き継ぎ、実利用未実施や条件未達のまま完了扱いにしません。
 
@@ -122,6 +122,14 @@ git -C "$EVAL_ROOT/buggy" apply "$LATCH_ROOT/fixtures/order-api/changes/buggy.pa
 
 ## ソース入力追加後の再評価
 
-許可したsrc/api.ts・src/server.tsの全文を計画・生成・修復へ渡す機能を追加しました。[WSL実機再評価のコマンド](source-inputs.md#今回のwsl実機テストを再開する)で新しいprofile・plan・reportを作り、旧記録を保存して比較します。correctの実機結果は下記、buggyの比較評価は未完了です。固定応答回帰によるHTTP呼出しとfactory初期化の成功を、実モデルの誤検出解消として記録しません。
+許可したsrc/api.ts・src/server.tsの全文を計画・生成・修復へ渡す機能を追加しました。[WSL実機再評価のコマンド](source-inputs.md#今回のwsl実機テストを再開する)で新しいprofile・plan・reportを作り、旧記録を保存して比較します。当初の停止履歴と、その後に完了したcorrect/buggy比較を下記へ分けて記録します。固定応答回帰によるHTTP呼出しとfactory初期化の成功を、実モデルの誤検出解消として記録しません。
 
 2026-10-28（JST）確認の[利用者提供記録](evaluations/codex-real-source-inputs-2026-10-28.json)では、追加ソースを使ったcorrectは既存5件・生成53件成功、条件14件成功・3件不明確。buggyはplan成功後に生成/修復応答の契約検査で停止したため、不具合検出・見逃しは判定できません。旧エラーだけでは違反箇所や停止段階を特定できないため、段階・項目・固定理由の診断を追加しました。
+
+## 完了した実correct/buggy比較と#81の判断
+
+2026-10-28（JST）確認。同じbase・merge-base・Issue digestで、correctは既存5/生成53成功、buggyは既存5成功・生成33成功/2失敗。SAVE10の期待907/実際906、SAVE20の期待803/実際802は、割引の切り捨てを四捨五入へ変えたfixture不具合と一致しました。buggyの生成推論起動1回、修復なし、40証拠ID一意、後片付け成功です。終了0は処理完了で、条件は12成功・1失敗・1未検証・3不明確です。
+
+[実利用記録](evaluations/codex-real-source-inputs-2026-10-28.json)へレポートの識別子・取得不能情報の理由と以前の停止試行も保存しました。[#81の受け入れ条件](issue-81-acceptance.md)では、実correct/buggy比較、実レポートの曖昧な条件、固定応答の曖昧/実行不能、安全境界と不変性の自動テストを区別します。実モデルで実行不能・敵対的ケースを追加実行したとは扱いません。
+
+この限定比較を#81の証拠とし、全要件の完全な品質保証や追加の無制限評価をクローズ条件にしません。計画と生成の端数期待値の整合性、既存証拠だけの条件の扱いは後続の品質課題として残します。レビュー・マージ・Issueのクローズは別操作です。

@@ -4,7 +4,7 @@ Latchは、AIが生成したコードをGitHub IssueやPRの要件と照合し�
 
 現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）、`latch plan` による要件抽出・既存Vitestテスト候補と不足シナリオの計画、`latch run` によるVitestテスト生成・隔離実行・実行証拠の収集と、要件→テスト→証拠を対応づけたテキスト／JSONレポートを提供しています。Markdownファイル出力・CI連携・GitHub PR投稿はまだ実装していません。
 
-製品は既存の公式ツール・標準機能を優先し、自前実装と資格情報管理を減らす方針です。責務の分担は [製品方針](docs/product-vision.md#自前実装を最小化する原則) を参照してください。[#81の公式CLI接続](docs/official-cli.md) はCodex CLI 0.163.0に対応します。初回の対応環境と実利用評価の未実施を参照してください。
+製品は既存の公式ツール・標準機能を優先し、自前実装と資格情報管理を減らす方針です。責務の分担は [製品方針](docs/product-vision.md#自前実装を最小化する原則) を参照してください。[#81の公式CLI接続](docs/official-cli.md) はCodex CLI 0.163.0に対応します。対応環境と [#81の受け入れ条件・証拠](docs/issue-81-acceptance.md) を参照してください。
 
 ## 使用技術
 
@@ -111,7 +111,7 @@ node dist/cli.mjs plan --base origin/main --issue-file fixtures/order-api/issue.
 
 送信にはワークツリー外の利用者管理のversion 2許可profileと、公式CLIでのログインが必要です。初回はCodex CLI 0.163.0・Linux（WSL 2上のUbuntuを含む）・ChatGPT Plus/Proアカウント・CLI設定・管理者設定のない環境に限定します。専用CODEX_HOMEを使う手順は [公式CLI接続](docs/official-cli.md) を参照してください。`codex login` は利用者が公式CLIで行ってください。Latchはキーやトークンを要求・読取・保存・コピーせず、ログインと通信を公式CLIへ委譲します。profileはprovider・project・データ区分を検証し、拒否・取り消し・範囲拡大・対応条件の不一致では推論前に停止します。旧version 1、endpoint、apiKeyEnvは移行案内付きで拒否し、API接続へ戻りません。設定例は [要件計画](docs/requirement-planning.md#許可profile)、公式情報と権限制限は [公式CLI接続](docs/official-cli.md) を参照してください。
 
-WSL 2での準備、コードレビューの操作、外部送信・実行の制限、結果の読み方は [初めてのコードレビュー](docs/review-walkthrough.md) を参照してください。WSL 2上の自動テスト・公式CLI起動検査は利用者提供ログで成功を確認しました。実Plusのplan/runとレポート出力は確認しましたが、正しい候補で誤検出があり、生成品質の改善と正誤候補の比較評価は未完了です。時間・要求回数・入出力量・テスト実行量は既定でLatch側の上限なしとし、必要な場合だけprofileで指定します。自動修復は条件ごとに既定1回（変更可能）です。認証情報・対象ワークツリーの保護は維持します。
+WSL 2での準備、コードレビューの操作、外部送信・実行の制限、結果の読み方は [初めてのコードレビュー](docs/review-walkthrough.md) を参照してください。WSL 2上の自動テスト・公式CLI起動検査は利用者提供ログで成功を確認しました。実Plusで同じbase・Issueのcorrect/buggyを評価し、correctの生成53件成功と、buggyの既存テストが通る割引不具合の検出を確認しました。[実利用記録](docs/evaluations/codex-real-source-inputs-2026-10-28.json)の範囲での結果であり、曖昧な条件と計画・生成の整合性課題は残ります。時間・要求回数・入出力量・テスト実行量は既定でLatch側の上限なしとし、必要な場合だけprofileで指定します。自動修復は条件ごとに既定1回（変更可能）です。認証情報・対象ワークツリーの保護は維持します。
 
 自動テストは固定したLLM応答を使い、実ログインでの抽出品質は評価していません。テスト生成・実行・証拠収集は `latch run` で実装し、隔離方式・安全境界・依存準備・通信制御・状態の区別は [生成テストの隔離実行と証拠収集](docs/isolated-execution.md) を参照してください。利用方法・許可profile・データ契約・確認と再計画の手順は [要件抽出と検証シナリオ計画](docs/requirement-planning.md) を参照してください。
 

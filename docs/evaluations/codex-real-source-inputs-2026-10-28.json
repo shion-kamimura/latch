@@ -5,7 +5,7 @@
   "executionTimestamp": null,
   "latchRevision": null,
   "revisionEvidence": "Source-input feature is present in the uploaded artifacts. No git revision output was supplied for these executions.",
-  "source": "User-uploaded correct report, buggy plan, and terminal output; not executions performed by the assistant. Raw responses and personal paths are not committed.",
+  "source": "User-uploaded correct report, buggy plan, final buggy report and terminal outputs; not executions performed by the assistant. Raw responses and personal paths are not committed.",
   "correct": {
     "reportFileSha256": "04061f0ce30ace43252514921c2c292fe6ac975881b14b4d2d49f9b4ae340fd0",
     "reportDigest": "6fdf6c74f79b0dd63f85e02a1d2dfd131ca342c2a52e10c68dae9fecaee9300b",
@@ -92,11 +92,12 @@
     "tokens": null,
     "cost": null,
     "cliInternalTurns": null,
-    "note": "requestCount records inference starts visible to Latch, not internal turns. Buggy run counts are unknown."
+    "note": "Successful correct and buggy runs each record one Latch-visible inference start and no repair. The first failed buggy run count is unknown; this is not a total across attempts. Tokens, cost and internal turns are not exposed in the reports."
   },
   "remaining": [
-    "Re-run buggy after delegating test collection to Vitest; reuse the saved plan if target inputs and profile are unchanged.",
-    "Compare bug detection, unverified conditions, and expected-value provenance; do not mark #81 complete."
+    "Human review and merge decision for PR #82; this record does not close the issue.",
+    "Follow-up quality work: align ambiguous rounding requirements and concrete generated expectations; improve no-coupon coverage.",
+    "Generalization, repeated-trial stability, real hostile model-tool attempts and independent real-run worktree fingerprints are outside the demonstrated evidence."
   ],
   "assistantRealModelRequests": 0,
   "buggyFollowup": {
@@ -111,5 +112,97 @@
     "assessment": "The guard is known to reject valid test.each/test.for/aliased registration. The log does not establish which syntax the actual response used or whether it was valid. Delegate test collection to Vitest rather than adding a custom JavaScript parser.",
     "testResults": null,
     "bugDetectionVerdict": null
+  },
+  "buggySuccessfulRun": {
+    "source": "User-uploaded final buggy report and terminal output showing successful build and exit 0.",
+    "latchRevision": null,
+    "expectedRevision": "760bcb88d213c55c830892df1c9d3b4a40ff0a8e",
+    "revisionEvidence": "Terminal output says Already up to date and build output is consistent with the suggested revision; no git rev-parse output independently confirms the runtime revision.",
+    "reportFileSha256": "ffbb41a9a74be683e76bd2318d7e7cb09b2bd5247dbdab7d4e173ab4bbb0cfd2",
+    "reportDigest": "fd77dc52cbcb392fbed6a9982c9288fc4ab6b34b863aa1a68538727f114ca2c8",
+    "planDigest": "d877e0fc55f4aed60ec110bcdce1ea5aa58de21706746e8d6f11e583f3429779",
+    "snapshotDigest": "0b890dc0f01d00cc74421705b4f768449bb2066af7fc5af913cced1056f694d5",
+    "sourceFiles": [
+      {
+        "path": "src/api.ts",
+        "digest": "ddc4c198a31b73a4fe4f6285485cd95a5cd2b0fbe350f99839a27c8bab26b82e"
+      },
+      {
+        "path": "src/server.ts",
+        "digest": "4a9510ee6e438c41ee86d37a76aa728decd3981a16c52921546fe2880c87bde6"
+      }
+    ],
+    "reportedRunExitCode": 0,
+    "reportedVerification": "completed",
+    "conditionStates": {
+      "verified": 12,
+      "unverified": 1,
+      "failed": 1,
+      "ambiguous": 3
+    },
+    "existingTests": {
+      "passed": 5
+    },
+    "generatedTests": {
+      "passed": 33,
+      "assertion-failed": 2
+    },
+    "generation": {
+      "provider": "codex-cli",
+      "model": "gpt-6.1-sol",
+      "requestCount": 1,
+      "maxRequests": null,
+      "repairAttempts": 0,
+      "maxRepairAttempts": 1,
+      "requestedConditions": 13,
+      "generatedFiles": 13
+    },
+    "evidenceCount": 40,
+    "uniqueEvidenceIds": 40,
+    "conditionReferencesResolve": true,
+    "reportedCleanup": "removed",
+    "failedConditionId": "cond-3522fbc53a",
+    "failedGeneratedFile": ".latch/generated/generated-10.test.ts",
+    "registration": "test.each",
+    "failures": [
+      {
+        "coupon": "SAVE10",
+        "subtotalCents": 1007,
+        "expectedTotalCents": 907,
+        "actualTotalCents": 906
+      },
+      {
+        "coupon": "SAVE20",
+        "subtotalCents": 1003,
+        "expectedTotalCents": 803,
+        "actualTotalCents": 802
+      }
+    ],
+    "assessment": "Both failed assertions match the known fixture mutation from Math.floor to Math.round. Existing tests pass. This successful execution detects that seeded defect, not arbitrary bugs.",
+    "unverifiedCondition": "cond-1cfc2e7285",
+    "unverifiedReason": "Only existing test evidence is mapped to the no-coupon condition; Latch does not treat it as sufficient generated verification."
+  },
+  "comparison": {
+    "sameBaseCommit": true,
+    "baseCommit": "477d65e17198b1b98af780ac8bb91290226652d5",
+    "sameMergeBase": true,
+    "sameIssueDigest": true,
+    "issueDigest": "501eca656d2b129d08169b6a69bde2e870a8b35fe527f0be6207833cdd6c720b",
+    "sameServerSourceDigest": true,
+    "sameModelSetting": true,
+    "correctAssertionFailures": 0,
+    "buggyAssertionFailures": 2,
+    "trialScope": "One completed report per candidate; earlier failures are preserved separately. Plans and generated tests differ between candidates, so this is not a paired identical-test replay or a stability estimate.",
+    "ambiguousConditions": "Both reports retain rounding-unit, unsupported-method/path and malformed-JSON ambiguity. Fractional expectations in coupon tests despite rounding ambiguity remain a planning/generation consistency limitation.",
+    "safetyEvidence": "Input exclusion, worktree/index/HEAD invariance and credential non-inheritance are validated by fixed-response automated tests; independent before/after fingerprints from these user model executions were not supplied. Cleanup is reported by both artifacts."
+  },
+  "measurementLimits": {
+    "endToEndElapsedMs": null,
+    "elapsedReason": "No complete plan/run wall-clock start/end timestamps were supplied. Per-test/suite durations in reports do not establish the end-to-end model duration.",
+    "returnedModelIdentifier": null,
+    "modelReason": "Reports retain the configured model name, not an independently returned backend identifier.",
+    "tokensCostReason": "The current CLI adapter/report does not expose token usage or Plus cost accounting. Unknown is not zero.",
+    "executionEnvironment": "Earlier user logs identify WSL 2 Ubuntu, Node 26.12.0, pnpm 12.14.0 and Codex 0.163.0; versions were not independently queried again for the final report.",
+    "limits": "Successful run maxRequests is null; source profiles use opt-in resource ceilings. CLI subscription and platform limits still apply."
   }
 }
