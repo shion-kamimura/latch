@@ -122,4 +122,6 @@ git -C "$EVAL_ROOT/buggy" apply "$LATCH_ROOT/fixtures/order-api/changes/buggy.pa
 
 ## ソース入力追加後の再評価
 
-許可したsrc/api.ts・src/server.tsの全文を計画・生成・修復へ渡す機能を追加しました。[WSL実機再評価のコマンド](source-inputs.md#今回のwsl実機テストを再開する)で新しいprofile・plan・reportを作り、旧記録を保存して比較します。変更後のPlus実機評価は未実施です。固定応答回帰によるHTTP呼出しとfactory初期化の成功を、実モデルの誤検出解消として記録しません。
+許可したsrc/api.ts・src/server.tsの全文を計画・生成・修復へ渡す機能を追加しました。[WSL実機再評価のコマンド](source-inputs.md#今回のwsl実機テストを再開する)で新しいprofile・plan・reportを作り、旧記録を保存して比較します。correctの実機結果は下記、buggyの比較評価は未完了です。固定応答回帰によるHTTP呼出しとfactory初期化の成功を、実モデルの誤検出解消として記録しません。
+
+2026-10-28（JST）確認の[利用者提供記録](evaluations/codex-real-source-inputs-2026-10-28.json)では、追加ソースを使ったcorrectは既存5件・生成53件成功、条件14件成功・3件不明確。buggyはplan成功後に生成/修復応答の契約検査で停止したため、不具合検出・見逃しは判定できません。旧エラーだけでは違反箇所や停止段階を特定できないため、段階・項目・固定理由の診断を追加しました。

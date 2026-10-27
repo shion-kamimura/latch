@@ -1,0 +1,102 @@
+{
+  "mode": "user-reported-real-source-input-evaluation",
+  "reviewedDate": "2026-10-28",
+  "reviewedTimezone": "Asia/Tokyo",
+  "executionTimestamp": null,
+  "latchRevision": null,
+  "revisionEvidence": "Source-input feature is present in the uploaded artifacts. No git revision output was supplied for these executions.",
+  "source": "User-uploaded correct report, buggy plan, and terminal output; not executions performed by the assistant. Raw responses and personal paths are not committed.",
+  "correct": {
+    "reportFileSha256": "04061f0ce30ace43252514921c2c292fe6ac975881b14b4d2d49f9b4ae340fd0",
+    "reportDigest": "6fdf6c74f79b0dd63f85e02a1d2dfd131ca342c2a52e10c68dae9fecaee9300b",
+    "planDigest": "07abfd370277e6b599c5ad39cc493b39133baa7a66079e76efc7f156cccdc30d",
+    "snapshotDigest": "c9d81c3846a7af53b4174580d57c8e3bb55143e925580d6debd75f8b67229d83",
+    "sourceFiles": [
+      {
+        "path": "src/api.ts",
+        "digest": "9bb337489511549ea95e8a96563918469faf99a23050a1c4a7b526c1ff29617e"
+      },
+      {
+        "path": "src/server.ts",
+        "digest": "4a9510ee6e438c41ee86d37a76aa728decd3981a16c52921546fe2880c87bde6"
+      }
+    ],
+    "reportedExitCode": 0,
+    "reportedVerification": "completed",
+    "conditionStates": {
+      "verified": 14,
+      "ambiguous": 3
+    },
+    "existingTests": {
+      "passed": 5
+    },
+    "generatedTests": {
+      "passed": 53
+    },
+    "generation": {
+      "provider": "codex-cli",
+      "model": "gpt-6.1-sol",
+      "requestCount": 1,
+      "maxRequests": null,
+      "repairAttempts": 0,
+      "maxRepairAttempts": 1,
+      "requestedConditions": 14,
+      "generatedFiles": 14
+    },
+    "evidenceCount": 58,
+    "uniqueEvidenceIds": 58,
+    "conditionReferencesResolve": true,
+    "reportedCleanup": "removed",
+    "assessment": "No assertion failures in this execution. Generated requests use Symbol.asyncIterator and server wiring explicitly invokes createApp. Replanning changed the condition set, so this is not a paired replay of the previous seven false positives.",
+    "limitations": [
+      "Three conditions remain ambiguous: fractional discount rounding, unsupported method/path, malformed JSON.",
+      "Some coupon tests use fractional discount expectations while the dedicated rounding condition is ambiguous; planning/generation consistency remains unresolved.",
+      "Vitest runtime success does not prove the TypeScript satisfies checks were typechecked.",
+      "Post-run worktree fingerprint and actual socket traffic were not independently verified."
+    ]
+  },
+  "buggy": {
+    "planFileSha256": "31eb86ac3f907ad7d84b508422c41d9b147ab09760f65f13f5e2fce8a07865d0",
+    "planDigest": "d877e0fc55f4aed60ec110bcdce1ea5aa58de21706746e8d6f11e583f3429779",
+    "snapshotDigest": "0b890dc0f01d00cc74421705b4f768449bb2066af7fc5af913cced1056f694d5",
+    "sourceFiles": [
+      {
+        "path": "src/api.ts",
+        "digest": "ddc4c198a31b73a4fe4f6285485cd95a5cd2b0fbe350f99839a27c8bab26b82e"
+      },
+      {
+        "path": "src/server.ts",
+        "digest": "4a9510ee6e438c41ee86d37a76aa728decd3981a16c52921546fe2880c87bde6"
+      }
+    ],
+    "requirements": 9,
+    "conditions": 17,
+    "requestedConditions": 13,
+    "planning": {
+      "provider": "codex-cli",
+      "model": "gpt-6.1-sol",
+      "requestCount": 1,
+      "maxRequests": null,
+      "timeoutMs": null
+    },
+    "reportedRunExitCode": 2,
+    "reportedReportBytes": 0,
+    "failure": "Generated-test response did not satisfy the Latch data contract.",
+    "failureStage": null,
+    "specificViolation": null,
+    "runInferenceStarts": null,
+    "testResults": null,
+    "assessment": "No bug detection or missed-bug verdict is possible from the empty report. The same generic validation error can arise in initial generation or repair. The raw response was not provided or retained, so the violation cannot be recovered from this log."
+  },
+  "usage": {
+    "tokens": null,
+    "cost": null,
+    "cliInternalTurns": null,
+    "note": "requestCount records inference starts visible to Latch, not internal turns. Buggy run counts are unknown."
+  },
+  "remaining": [
+    "Re-run buggy with field/stage diagnostics if the user continues the real evaluation.",
+    "Compare bug detection, unverified conditions, and expected-value provenance; do not mark #81 complete."
+  ],
+  "assistantRealModelRequests": 0
+}

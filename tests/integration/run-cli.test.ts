@@ -293,6 +293,144 @@ afterEach(() => {
 });
 
 describe('run command isolated execution', () => {
+  test.each([
+    ['invalid JSON', 'RAW_RESPONSE_SENTINEL', '応答全体'],
+    [
+      'missing array',
+      JSON.stringify({ tests: 'RAW_RESPONSE_SENTINEL' }),
+      'tests: 配列',
+    ],
+    [
+      'invalid entry',
+      JSON.stringify({ tests: ['RAW_RESPONSE_SENTINEL'] }),
+      'tests[0]: オブジェクト',
+    ],
+    [
+      'invalid ID type',
+      JSON.stringify({ tests: [{ conditionId: 42, code: GENERATED_CODE }] }),
+      'conditionId: 文字列',
+    ],
+    [
+      'unknown ID',
+      JSON.stringify({
+        tests: [{ conditionId: 'RAW_RESPONSE_SENTINEL', code: GENERATED_CODE }],
+      }),
+      '生成対象にない条件ID',
+    ],
+    [
+      'duplicate ID',
+      JSON.stringify({
+        tests: [0, 1].map(() => ({
+          conditionId: 'cond-discount-floor',
+          code: GENERATED_CODE,
+          name: 'RAW_RESPONSE_SENTINEL',
+        })),
+      }),
+      'tests[1].conditionId: 条件IDが重複',
+    ],
+    [
+      'invalid code type',
+      JSON.stringify({
+        tests: [
+          {
+            conditionId: 'cond-discount-floor',
+            code: { value: 'RAW_RESPONSE_SENTINEL' },
+          },
+        ],
+      }),
+      'code: 文字列',
+    ],
+    [
+      'empty code',
+      JSON.stringify({
+        tests: [{ conditionId: 'cond-discount-floor', code: ' ' }],
+      }),
+      'code: 空',
+    ],
+    [
+      'NUL code',
+      llmResponse(`${GENERATED_CODE}\u0000RAW_RESPONSE_SENTINEL`),
+      'code: NUL文字',
+    ],
+    [
+      'missing import',
+      llmResponse("// RAW_RESPONSE_SENTINEL\ntest('example', () => {});"),
+      'vitestからのimport',
+    ],
+    [
+      'unrecognized test',
+      llmResponse("import { expect } from 'vitest'; // RAW_RESPONSE_SENTINEL"),
+      '認識できるtest/it呼出し',
+    ],
+  ])(
+    'reports a safe generation diagnostic for %s without retrying',
+    async (_name, response, diagnostic) => {
+      const repo = repositoryWithChange('buggy');
+      const planPath = planFile(repo, temporary());
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root),
+      );
+      const invokeCli = vi.fn<PlanningCli>(async () => response);
+      const before = gitStatus(repo);
+      const { status, io } = await run(repo, planPath, profile, invokeCli);
+      expect(status).toBe(2);
+      expect(io.stdout).not.toHaveBeenCalled();
+      const stderr = io.stderr.mock.calls.flat().join('\n');
+      expect(stderr).toContain(diagnostic);
+      expect(stderr).toContain('（初回生成）');
+      expect(stderr).not.toContain('RAW_RESPONSE_SENTINEL');
+      expect(stderr).not.toContain(GENERATED_CODE);
+      expect(invokeCli).toHaveBeenCalledTimes(1);
+      expect(gitStatus(repo)).toBe(before);
+    },
+  );
+
+  test('distinguishes an explicit generated file size limit from a response format error', async () => {
+    const repo = repositoryWithChange('buggy');
+    const planPath = planFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root, {
+        extra: { execution: { limits: { maxGeneratedFileBytes: 10 } } },
+      }),
+    );
+    const recorder = recordingCli();
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
+    expect(status).toBe(2);
+    expect(io.stdout).not.toHaveBeenCalled();
+    expect(io.stderr.mock.calls.flat().join('\n')).toContain(
+      'tests[0].code: profileで指定したmaxGeneratedFileBytes',
+    );
+    expect(recorder.bodies).toHaveLength(1);
+  });
+
+  test('reports a repair response diagnostic without exposing code or retrying again', async () => {
+    const repo = repositoryWithChange('buggy');
+    const planPath = planFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root),
+    );
+    const invokeCli = vi
+      .fn<PlanningCli>()
+      .mockResolvedValueOnce(llmResponse(INVALID_GENERATED_CODE))
+      .mockResolvedValueOnce(JSON.stringify({ tests: [] }));
+    const { status, io } = await run(repo, planPath, profile, invokeCli);
+    expect(status).toBe(2);
+    expect(io.stdout).not.toHaveBeenCalled();
+    expect(io.stderr.mock.calls.flat().join('\n')).toContain(
+      '修復応答には同じ条件のテストが1件必要',
+    );
+    expect(io.stderr.mock.calls.flat().join('\n')).toContain('（修復）');
+    expect(invokeCli).toHaveBeenCalledTimes(2);
+  }, 15_000);
+
   test.each([false, true])(
     'keeps evidence unique and linked to the right condition across generated suites (repair=%s)',
     async (repair) => {
