@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { release } from 'node:os';
 import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
@@ -10,6 +11,10 @@ import { parsePlanningProfile } from '../../src/plan/profile.js';
 import { codexOutputSchema } from '../../src/plan/codex-policy.js';
 import { createTemporaryDirectory, profileContent } from '../helpers/plan.js';
 import { createFakeCli } from '../helpers/official-cli.js';
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { ...actual, release: vi.fn(actual.release) };
+});
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   return {
@@ -58,9 +63,51 @@ function setup() {
   return { cli, request, profile };
 }
 afterEach(() => {
+  vi.mocked(release).mockReset();
   for (const directory of directories.splice(0)) directory.cleanup();
 });
 describe('Codex CLI connection', () => {
+  test.each([
+    '6.8.0-ubuntu',
+    '6.6.87.2-microsoft-standard-WSL2',
+    '5.15.167.4-microsoft-standard-WSL2',
+    '4.19.128-microsoft-standard',
+  ])('keeps the restricted CLI policy on Linux kernel %s', async (kernel) => {
+    vi.mocked(release).mockReturnValue(kernel);
+    const { cli, request } = setup();
+    await expect(invokeOfficialCli(request)).resolves.toBe(
+      '{"requirements":[]}',
+    );
+    expect(cli.requests()).toHaveLength(1);
+    expect(cli.requests()[0]!.args).toEqual(
+      expect.arrayContaining([
+        'permissions.latch.filesystem={":root"="deny"}',
+        'permissions.latch.network.enabled=false',
+        'approval_policy="never"',
+        'features.shell_tool=false',
+      ]),
+    );
+  });
+  test.each([
+    '4.4.0-19041-Microsoft',
+    '4.4.0-Microsoft-WSL1',
+    '6.6.0-microsoft-standard-WSL1',
+    '6.6.0-unknown-WSL',
+  ])('rejects unsupported WSL kernel %s before inference', async (kernel) => {
+    vi.mocked(release).mockReturnValue(kernel);
+    const { cli, request } = setup();
+    await expect(
+      invokeOfficialCli({
+        ...request,
+        env: {
+          ...request.env,
+          WSL_DISTRO_NAME: 'Ubuntu',
+          WSL_INTEROP: '/fake',
+        },
+      }),
+    ).rejects.toThrow('WSL 1または判別できない');
+    expect(cli.requests()).toHaveLength(0);
+  });
   test('uses explicit input in an empty cwd, a deny-all permission profile, and no API key environment', async () => {
     const { cli, request, profile } = setup();
     const result = await callPlanningLlm({

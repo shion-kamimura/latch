@@ -25,7 +25,7 @@ latch plan --base origin/main --issue-file issue.md --profile ~/.config/latch/ll
 
 ## 公式CLIへの委譲
 
-Codex CLI 0.163.0の非対話実行・構造化出力を使います。認証と通信は未改変の公式CLIへ委譲し、Latchはキーやトークンを要求・解決・保存・コピーしません。Linux（WSL以外）上のChatGPT Plus/Proログインに対応し、CLI設定・管理者設定がある環境や未知の状態は推論前に拒否します。既存設定を変えない専用CODEX_HOMEでの公式ログインも利用できます。詳細と一次情報は [採用条件](official-cli.md) を参照してください。
+Codex CLI 0.163.0の非対話実行・構造化出力を使います。認証と通信は未改変の公式CLIへ委譲し、Latchはキーやトークンを要求・解決・保存・コピーしません。Linux（WSL 2上のUbuntuを含む）上のChatGPT Plus/Proログインに対応し、WSL 1・CLI設定・管理者設定がある環境や未知の状態は推論前に拒否します。既存設定を変えない専用CODEX_HOMEでの公式ログインも利用できます。詳細と一次情報は [採用条件](official-cli.md) を参照してください。
 
 - モデルは許可profileの `connection.model` で指定します。設定例のモデル名は、公式CLIで利用できるモデルに合わせてください。
 - profileは送信許可と上限の設定です。公式CLIのログインは送信許可の代わりになりません。

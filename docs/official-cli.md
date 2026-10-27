@@ -8,7 +8,7 @@
 
 LatchはCLIを自動導入せず、ログインも実装しない。対応版を導入する例は `npm install -g @openai/codex@0.163.0`。利用者が信頼した `codex` をPATHへ置き、公式の `codex login` でChatGPTアカウントへログインする。ブラウザ操作・tokenのコピー・独自認証APIは使わない。`--with-api-key`は使わない。
 
-初回はLinux（WSL以外）・Plus/ProのChatGPTログイン・利用者設定や管理設定のないCLI環境に対応する。既存のCodex設定を変えたくない場合は、ワークツリー外の専用ディレクトリへ公式CLIでログインできる:
+初回はLinux（WSL 2上のUbuntuを含む）・Plus/ProのChatGPTログイン・利用者設定や管理設定のないCLI環境に対応する。既存のCodex設定を変えたくない場合は、ワークツリー外の専用ディレクトリへ公式CLIでログインできる:
 
 ```sh
 export CODEX_HOME="$HOME/.local/share/latch/codex"
@@ -41,11 +41,26 @@ codex login
 - `/etc/codex/config.toml`、`/etc/codex/requirements.toml`、`/etc/codex/managed_config.toml`
 - 選択したCODEX_HOMEの `config.toml`、`requirements.toml`
 
-いずれかが存在するか、有無を確認できない場合は停止する。設定・MCP・フック等が混入しない最小の利用条件であり、管理者のpolicyを無視・上書きする方式ではない。既存設定を自動削除せず、専用CODEX_HOMEでの公式ログインを案内する。システム管理設定のある環境、Team/Enterprise、gateway、APIキー、未知の版・planType、macOS/Windows/WSLは初回対象外である。
+いずれかが存在するか、有無を確認できない場合は停止する。設定・MCP・フック等が混入しない最小の利用条件であり、管理者のpolicyを無視・上書きする方式ではない。既存設定を自動削除せず、専用CODEX_HOMEでの公式ログインを案内する。システム管理設定のある環境、Team/Enterprise、gateway、APIキー、未知の版・planType、macOS/Windowsネイティブ・WSL 1は初回対象外である。
 
 Codexの公開app-serverを起動し、initialize→account/readだけを要求する。ChatGPTのPlus/Pro以外ならexecを起動せず停止する。アカウント状態の確認に認証通信が生じる場合も、公式CLIへ委譲する。Latchが非公開認証APIを呼ぶことはない。
 
 信頼したホスト・CLI・PATHと、実行中に利用者が資格情報や設定を差し替えないことを前提とする。ホスト管理者の改ざん・実行中の設定変更を防ぐOSサンドボックスではない。
+
+## WSL 2上のUbuntu
+
+2026-10-27、WSLを一律に拒否していた条件を修正した。次の一次資料から、通常のLinuxと同じ制限を維持してWSL 2を利用対象にする。WSL 1は除外する。
+
+- [OpenAIのWSL手順](https://learn.chatgpt.com/docs/windows/wsl): WSL 2ではLinux側でCodexを実行する。0.115以降のLinux sandboxはbubblewrapを使い、WSL 1は非対応。現在の案内と採用版のソースを分けて確認した。
+- [採用版のWSL判定](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/sandboxing/src/bwrap.rs)と[判定テスト](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/sandboxing/src/bwrap_tests.rs): WSL 1では必要なuser namespaceを作れない。WSL2と、旧形式のmicrosoft-standardカーネルをWSL 1から区別する。
+- [採用版のLinux sandbox](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/linux-sandbox/src/bwrap.rs)と[seccomp](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/linux-sandbox/src/seccomp.rs): 制限された実行でWSLのWindowsプロセス起動用ブリッジ（/run/WSLとVM socket）を扱う。Latchはこの公式実装を変更せず、ツールの無効化とfilesystem/networkの拒否を維持する。
+- [MicrosoftのWSL比較](https://learn.microsoft.com/en-us/windows/wsl/compare-versions): WSL 2は実際のLinuxカーネルを利用する。[ファイル配置の推奨](https://learn.microsoft.com/en-us/windows/wsl/filesystems)に従い、Linuxツールで扱うリポジトリはLinux側へ置く。
+
+LatchはNode.jsのprocess.platformとos.release()を使い、通常のLinux、WSL2の識別子、旧microsoft-standard形式を受け付ける。WSL 1または判別できないWSL形式は推論前に拒否する。WSL_DISTRO_NAME等の環境変数だけでは受け付けない。これは対応環境の選別で、カーネルの安全性を証明する検査ではない。
+
+Node.js・pnpm・Git・CodexはUbuntu側に導入し、リポジトリ・HOME・CODEX_HOMEはLinux側（例: /home/user/code）に置く。Windows版Node/Codexや/mnt/c上での運用は今回の検証対象に含めない。配置の自動移動や設定変更はしない。操作とWSL上での確認手順は [初めてのコードレビュー](review-walkthrough.md) を参照する。
+
+この開発環境は通常のLinuxであり、WSLカーネル文字列を使う固定応答テストから実機の成功とは判断しない。実WSL 2のUbuntuでの公式CLI起動・隔離テスト実行・Plus全工程は未実施。WSLでも管理設定・版・送信許可・権限の条件は同じであり、起動失敗時に権限を緩めて再実行しない。
 
 ## 権限制限とLatchの責務
 

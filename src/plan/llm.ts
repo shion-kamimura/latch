@@ -112,8 +112,22 @@ export function assertCliHost(
   env: NodeJS.ProcessEnv,
   project?: string,
 ): string {
-  if (process.platform !== 'linux' || /microsoft/i.test(release()))
-    fail('公式CLI接続は現在Linux（WSL以外）だけに対応しています。');
+  if (process.platform !== 'linux')
+    fail('公式CLI接続は現在Linux・WSL 2上のLinuxだけに対応しています。');
+  const kernel = release().toLowerCase();
+  // Codex 0.163.0 requires Linux namespaces and excludes WSL 1. Recognize
+  // current WSL2 and older microsoft-standard kernels, without trusting the
+  // presence of WSL environment variables as proof of the kernel version.
+  const wslVersion = /(?:^|[-_])wsl(\d+)(?:[-_]|$)/.exec(kernel)?.[1];
+  if (
+    /microsoft|wsl/.test(kernel) &&
+    (wslVersion !== undefined
+      ? wslVersion !== '2'
+      : !/microsoft-standard(?:[-_]|$)/.test(kernel))
+  )
+    fail(
+      'WSL 1または判別できないWSLカーネルには未対応です。WSL 2上のUbuntuを使ってください。',
+    );
   const home = env.HOME;
   if (!home || !isAbsolute(home))
     fail('公式CLIの利用には絶対パスのHOMEが必要です。');
