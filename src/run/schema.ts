@@ -425,7 +425,7 @@ export function assertValidRunReport(
   if (errors.length > 0) {
     throw new RequirementPlanError(
       `検証レポートの形式が不正です: ${errors[0]}`,
-      '書きかけのレポートを出力せずに停止しました。同じ入力で再実行してください。',
+      '書きかけのレポートを出力せずに停止しました。モデル要求を繰り返さず、Latchのレポート生成処理を確認してください。',
       2,
     );
   }

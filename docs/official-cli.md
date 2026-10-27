@@ -104,4 +104,6 @@ LATCH_OFFICIAL_CLI=/absolute/path/to/codex \
 
 新しい空HOMEを使用し、公開account/readで未ログイン、config/readでdeny profileと機能制限、thread/startで有効profile・ネットワーク制限・指示ファイル未読込を確認する。turn/startは送らない。対応外のシステム設定があるホストではskipする。通常CIは実CLIを要求せず、この任意検査をskipする。導入済み0.163.0では、空HOMEからの公開RPCによるprofileコンパイルと、最終機能設定のfeatures listによる解析（終了0）を別途確認した。これは実Plusアカウントの検証ではない。
 
-実際のPlusログインでのplan/run、敵対的入力への動作、生成品質・誤検出/見逃し・利用量は未評価。実ログイン可能な対応環境を用意し、利用者の指定した利用範囲（任意上限の有無を含む）を記録してから [評価手順](order-api-evaluation.md)で実施する。旧1 USD API予算は流用しない。開発環境の自動テストによる実モデル要求は0件。利用者の実ログインでcorrect候補のplanを1回試みたが実行失敗し、完了したplan/runはまだない（[失敗記録](evaluations/codex-real-attempt-2026-10-27.json)）。CLI内部のmodel turn数・利用量は不明で、0とは記録しない。廃止モデルを指定した設定上の問題を修正し、実測を続ける。#81を完了・自動closeしない。
+Plusログインでのplan成功は利用者提供JSONで確認したが、run完了・敵対的入力への動作・生成品質・誤検出/見逃し・利用量の評価は未完了。実ログイン可能な対応環境を用意し、利用者の指定した利用範囲（任意上限の有無を含む）を記録してから [評価手順](order-api-evaluation.md)で実施する。旧1 USD API予算は流用しない。開発環境の自動テストによる実モデル要求は0件。利用者の実ログインでcorrect候補のplanを1回試みたが実行失敗し、この最初の試行ではplan/runは完了しなかった（その後のplan成功とrunの不具合は下記）（[失敗記録](evaluations/codex-real-attempt-2026-10-27.json)）。CLI内部のmodel turn数・利用量は不明で、0とは記録しない。廃止モデルを指定した設定上の問題を修正し、実測を続ける。#81を完了・自動closeしない。
+
+2026-10-27、利用者提供のgpt-6.1-solによる実計画JSONで、8要件・15条件・11生成対象条件のplan成功を確認した。続くrunは複数生成テストの証拠IDが重複し、レポート検証で終了コード2となった（[記録](evaluations/codex-real-plan-run-2026-10-27.json)）。IDへ実行単位と修復試行を含める修正を行い、複数条件の成功・失敗と参照先を固定応答で回帰する。実機での修正後runとbuggy比較は未完了であり、plan成功だけで全工程の評価完了とはしない。

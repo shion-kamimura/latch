@@ -174,7 +174,9 @@ function evidenceFor(
 ): Evidence {
   const bounded = truncate(log, options.settings.limits.maxOutputBytes);
   return {
-    id: `evidence-${options.kind}-${String(index + 1).padStart(3, '0')}`,
+    // The counter is local to a suite. Include its unique execution name so
+    // separate generated files and repair attempts cannot share report IDs.
+    id: `evidence-${options.kind}-${options.name}-${String(index + 1).padStart(3, '0')}`,
     kind: options.kind,
     conditionIds,
     testName,

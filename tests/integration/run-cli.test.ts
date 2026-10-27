@@ -1,4 +1,5 @@
 import type { PlanningCli } from '../../src/plan/llm.js';
+import type { RunReport } from '../../src/run/types.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -292,6 +293,109 @@ afterEach(() => {
 });
 
 describe('run command isolated execution', () => {
+  test.each([false, true])(
+    'keeps evidence unique and linked to the right condition across generated suites (repair=%s)',
+    async (repair) => {
+      const repo = repositoryWithChange('buggy');
+      const planPath = planFile(repo, temporary());
+      const plan = JSON.parse(readFileSync(planPath, 'utf8'));
+      const original = plan.requirements[0].conditions[0];
+      plan.requirements[0].text =
+        'Accept the quantity limit and floor coupon discounts.';
+      plan.requirements[0].conditions.push({
+        ...original,
+        id: 'cond-quantity-boundary',
+        text: 'Accept quantity exactly MAX_UNITS_PER_LINE.',
+        missingScenarios: [
+          {
+            ...original.missingScenarios[0],
+            id: 'scenario-quantity-boundary',
+            conditionId: 'cond-quantity-boundary',
+            description: 'An order at the maximum quantity is accepted.',
+          },
+        ],
+      });
+      writeFileSync(planPath, JSON.stringify(plan));
+      const boundaryCode = [
+        "import { expect, test } from 'vitest';",
+        "import { calculateOrder, MAX_UNITS_PER_LINE } from '../../src/api.ts';",
+        "test('accepts the inclusive quantity boundary', () => {",
+        "  expect(calculateOrder({ lines: [{ sku: 'ABC', quantity: MAX_UNITS_PER_LINE, unitPriceCents: 1 }] })).toEqual({",
+        '    ok: true, value: { subtotalCents: MAX_UNITS_PER_LINE, totalCents: MAX_UNITS_PER_LINE, appliedCoupon: null }',
+        '  });',
+        '});',
+      ].join('\n');
+      const boundary = {
+        conditionId: 'cond-quantity-boundary',
+        name: 'quantity boundary',
+        rationale: 'boundary coverage',
+        code: boundaryCode,
+      };
+      const invokeCli = vi.fn<PlanningCli>(async (input) =>
+        JSON.stringify({
+          tests: input.user.includes('## Repair one generated Vitest test')
+            ? [boundary]
+            : [
+                {
+                  ...boundary,
+                  code: repair ? INVALID_GENERATED_CODE : boundaryCode,
+                },
+                {
+                  conditionId: 'cond-discount-floor',
+                  name: 'fractional discount',
+                  rationale: 'rounding coverage',
+                  code: GENERATED_CODE,
+                },
+              ],
+        }),
+      );
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root),
+      );
+      const before = gitStatus(repo);
+      const { status, io } = await run(repo, planPath, profile, invokeCli);
+      expect(status).toBe(0);
+      const report = JSON.parse(
+        io.stdout.mock.calls[0]?.[0] as string,
+      ) as RunReport;
+      expect(new Set(report.evidence.map((item) => item.id)).size).toBe(
+        report.evidence.length,
+      );
+      const boundaryCondition = report.conditions.find(
+        (item) => item.conditionId === boundary.conditionId,
+      )!;
+      const discountCondition = report.conditions.find(
+        (item) => item.conditionId === 'cond-discount-floor',
+      )!;
+      expect(boundaryCondition.state).toBe('verified');
+      expect(discountCondition.state).toBe('failed');
+      expect(boundaryCondition.evidenceIds).toHaveLength(1);
+      expect(discountCondition.evidenceIds).toHaveLength(1);
+      expect(boundaryCondition.evidenceIds[0]).not.toBe(
+        discountCondition.evidenceIds[0],
+      );
+      for (const condition of report.conditions)
+        for (const id of condition.evidenceIds)
+          expect(
+            report.evidence.find((item) => item.id === id)?.conditionIds,
+          ).toContain(condition.conditionId);
+      expect(
+        report.evidence.find(
+          (item) => item.id === boundaryCondition.evidenceIds[0],
+        )?.content,
+      ).toBe(boundaryCode);
+      expect(
+        report.evidence.find(
+          (item) => item.id === discountCondition.evidenceIds[0],
+        )?.content,
+      ).toBe(GENERATED_CODE);
+      expect(report.generation.repairAttempts).toBe(Number(repair));
+      expect(invokeCli).toHaveBeenCalledTimes(repair ? 2 : 1);
+      expect(gitStatus(repo)).toBe(before);
+    },
+    30_000,
+  );
   test.each([
     ['correct', 'verified', 'passed'],
     ['buggy', 'failed', 'assertion-failed'],
