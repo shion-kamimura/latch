@@ -60,7 +60,7 @@ LatchはNode.jsのprocess.platformとos.release()を使い、通常のLinux、WS
 
 Node.js・pnpm・Git・CodexはUbuntu側に導入し、リポジトリ・HOME・CODEX_HOMEはLinux側（例: /home/user/code）に置く。Windows版Node/Codexや/mnt/c上での運用は今回の検証対象に含めない。配置の自動移動や設定変更はしない。操作とWSL上での確認手順は [初めてのコードレビュー](review-walkthrough.md) を参照する。
 
-この開発環境は通常のLinuxであり、WSLカーネル文字列を使う固定応答テストから実機の成功とは判断しない。実WSL 2のUbuntuでの公式CLI起動・隔離テスト実行・Plus全工程は未実施。WSLでも管理設定・版・送信許可・権限の条件は同じであり、起動失敗時に権限を緩めて再実行しない。
+この開発環境は通常のLinuxであり、WSLカーネル文字列の固定応答テストとは別に、2026-10-27の利用者提供ログで実WSL 2上の自動テスト206件・ビルドと、実Codexの未ログイン起動検査1件の成功を確認した（[記録](evaluations/wsl2-startup-2026-10-27.json)）。助手が利用者端末で直接実行したものではなく、全WSL環境を保証しない。実Plusログインによるplan/runと生成品質は未評価。WSLでも管理設定・版・送信許可・権限の条件は同じであり、起動失敗時に権限を緩めて再実行しない。
 
 ## 権限制限とLatchの責務
 
