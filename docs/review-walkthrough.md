@@ -93,7 +93,7 @@ LATCH_REVIEW="$HOME/.local/share/latch/reviews/my-app"
 mkdir -p "$LATCH_REVIEW"
 ```
 
-`$LATCH_REVIEW/issue.md` へIssue本文を保存します。たとえば「負の金額はRangeError」「0は許可する」のように、期待する結果を具体的に書きます。GitHubからの自動取得は未実装です。
+対象リポジトリ内の `latch-issue.md` へIssue本文を保存します。先頭に `# 金額の入力検証` のようなMarkdownのタイトルを置き、「負の金額はRangeError」「0は許可する」のように期待する結果を具体的に書きます。Issueファイルはリポジトリ外やシンボリックリンクでは受け付けません。GitHubからの自動取得は未実装です。すでに要件を書いたMarkdownがあれば、そのパスを使えます。
 
 Latchはコミット済み差分だけでなく、未コミットの追跡済み変更も含めます。上のgit diffはコミット間の確認用です。未追跡ファイルは既定で除外し、必要ならverify/planの両方に `--include-untracked src/new.ts` のように明示します。
 
@@ -101,7 +101,7 @@ Latchはコミット済み差分だけでなく、未コミットの追跡済み
 
 ```sh
 node "$LATCH_CLI" verify --base origin/main \
-  --issue-file "$LATCH_REVIEW/issue.md"
+  --issue-file latch-issue.md
 ```
 
 比較先・対象差分・Issue入力・除外パスを確認します。**ここではモデルを呼ばず、対象コードもテストも実行しません。** 成功表示は「入力を用意できた」という意味です。入力に秘密がないことを確認してからplanへ進みます。既知の認証パスを除外する機能はありますが、通常のソースへ埋め込まれた秘密をすべて検出する機能はありません。
@@ -110,7 +110,7 @@ node "$LATCH_CLI" verify --base origin/main \
 
 ```sh
 node "$LATCH_CLI" plan --base origin/main \
-  --issue-file "$LATCH_REVIEW/issue.md" \
+  --issue-file latch-issue.md \
   --profile "$HOME/.config/latch/my-app.json" \
   --json > "$LATCH_REVIEW/plan.json"
 ```
