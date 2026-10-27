@@ -95,8 +95,21 @@
     "note": "requestCount records inference starts visible to Latch, not internal turns. Buggy run counts are unknown."
   },
   "remaining": [
-    "Re-run buggy with field/stage diagnostics if the user continues the real evaluation.",
+    "Re-run buggy after delegating test collection to Vitest; reuse the saved plan if target inputs and profile are unchanged.",
     "Compare bug detection, unverified conditions, and expected-value provenance; do not mark #81 complete."
   ],
-  "assistantRealModelRequests": 0
+  "assistantRealModelRequests": 0,
+  "buggyFollowup": {
+    "source": "User-provided terminal output confirms fast-forward to 06da8e9, successful build, and run exit 2.",
+    "latchRevision": "06da8e93b81bf4d33bd5a72970ef3a472b7cadc8",
+    "reportedRunExitCode": 2,
+    "failureStage": "initial-generation",
+    "field": "tests[0].code",
+    "specificViolation": "The Latch text matcher did not recognize a direct test(...) or it(...) call.",
+    "rawCodeAvailable": false,
+    "validityOfGeneratedCode": null,
+    "assessment": "The guard is known to reject valid test.each/test.for/aliased registration. The log does not establish which syntax the actual response used or whether it was valid. Delegate test collection to Vitest rather than adding a custom JavaScript parser.",
+    "testResults": null,
+    "bugDetectionVerdict": null
+  }
 }

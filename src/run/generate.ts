@@ -206,10 +206,9 @@ function parseTests(
       typeof entry.rationale === 'string'
         ? entry.rationale.trim().slice(0, MAX_RATIONALE)
         : '';
-    if (!/\bfrom\s+['"]vitest['"]/u.test(code))
-      invalid(`${field}.code: vitestからのimportを確認できません。`);
-    if (!/\b(?:test|it)\s*\(/u.test(code))
-      invalid(`${field}.code: Latchが認識できるtest/it呼出しがありません。`);
+    // Let Vitest collect/execute tests in the isolated copy. Text matching cannot
+    // recognize valid each/for/tagged/aliased imports and calls, nor prove that
+    // a file actually registers tests. No collected tests remains invalid.
     tests.push({ conditionId, name, rationale, code });
   }
   return tests;

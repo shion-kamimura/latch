@@ -294,6 +294,153 @@ afterEach(() => {
 
 describe('run command isolated execution', () => {
   test.each([
+    [
+      'test.each',
+      GENERATED_CODE.replace(
+        "test('floors fractional discount cents',",
+        "test.each([1, 2])('floors fractional discount cents %i',",
+      ),
+      2,
+    ],
+    [
+      'test.for',
+      GENERATED_CODE.replace(
+        "test('floors fractional discount cents',",
+        "test.for([1, 2])('floors fractional discount cents',",
+      ),
+      2,
+    ],
+    [
+      'it.each',
+      GENERATED_CODE.replace('{ expect, test }', '{ expect, it }').replace(
+        "test('floors fractional discount cents',",
+        "it.each([1, 2])('floors fractional discount cents %i',",
+      ),
+      2,
+    ],
+    [
+      'aliased import',
+      GENERATED_CODE.replace(
+        '{ expect, test }',
+        '{ expect, test as check }',
+      ).replace("test('floors", "check('floors"),
+      1,
+    ],
+    [
+      'namespace import',
+      GENERATED_CODE.replace(
+        "import { expect, test } from 'vitest';",
+        "import * as vt from 'vitest';",
+      )
+        .replace("test('floors", "vt.test('floors")
+        .replace('  expect(', '  vt.expect('),
+      1,
+    ],
+  ] as const)(
+    'delegates %s registration to Vitest',
+    async (_syntax, code, assertions) => {
+      const repo = repositoryWithChange('correct');
+      const planPath = planFile(repo, temporary());
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root),
+      );
+      const recorder = recordingCli(code);
+      const { status, io } = await run(
+        repo,
+        planPath,
+        profile,
+        recorder.invokeCli,
+      );
+      expect(status, io.stderr.mock.calls.flat().join('\n')).toBe(0);
+      const report = JSON.parse(
+        io.stdout.mock.calls[0]?.[0] as string,
+      ) as RunReport;
+      expect(report.conditions[0]?.state).toBe('verified');
+      const generated = report.evidence.filter((e) => e.kind === 'generated');
+      expect(generated).toHaveLength(assertions);
+      expect(generated.every((e) => e.status === 'passed')).toBe(true);
+      expect(report.generation.repairAttempts).toBe(0);
+      expect(recorder.bodies).toHaveLength(1);
+    },
+    15_000,
+  );
+
+  test('retains actual assertion failures in parameterized generated tests', async () => {
+    const repo = repositoryWithChange('buggy');
+    const planPath = planFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root),
+    );
+    const recorder = recordingCli(
+      GENERATED_CODE.replace(
+        "test('floors fractional discount cents',",
+        "test.each([1, 2])('floors fractional discount cents %i',",
+      ),
+    );
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
+    expect(status).toBe(0);
+    const report = JSON.parse(
+      io.stdout.mock.calls[0]?.[0] as string,
+    ) as RunReport;
+    expect(report.conditions[0]?.state).toBe('failed');
+    expect(
+      report.evidence.filter(
+        (e) => e.kind === 'generated' && e.status === 'assertion-failed',
+      ),
+    ).toHaveLength(2);
+    expect(report.generation.repairAttempts).toBe(0);
+    expect(recorder.bodies).toHaveLength(1);
+  }, 15_000);
+
+  test.each([
+    [
+      'no registered tests',
+      "import { expect } from 'vitest'; // test('comment only')",
+    ],
+    ['missing import', "test('missing import', () => {});"],
+  ])(
+    'does not verify generated code with %s',
+    async (_name, code) => {
+      const repo = repositoryWithChange('correct');
+      const planPath = planFile(repo, temporary());
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root, {
+          extra: { execution: { limits: { maxRepairAttempts: 0 } } },
+        }),
+      );
+      const recorder = recordingCli(code);
+      const { status, io } = await run(
+        repo,
+        planPath,
+        profile,
+        recorder.invokeCli,
+      );
+      expect(status).toBe(0);
+      const report = JSON.parse(
+        io.stdout.mock.calls[0]?.[0] as string,
+      ) as RunReport;
+      expect(report.conditions[0]?.state).toBe('unverified');
+      expect(report.requirements[0]?.state).toBe('unverified');
+      expect(
+        report.evidence.some(
+          (e) =>
+            e.kind === 'generated' && e.status === 'invalid-generated-test',
+        ),
+      ).toBe(true);
+      expect(recorder.bodies).toHaveLength(1);
+    },
+    15_000,
+  );
+
+  test.each([
     ['invalid JSON', 'RAW_RESPONSE_SENTINEL', '応答全体'],
     [
       'missing array',
@@ -351,16 +498,6 @@ describe('run command isolated execution', () => {
       'NUL code',
       llmResponse(`${GENERATED_CODE}\u0000RAW_RESPONSE_SENTINEL`),
       'code: NUL文字',
-    ],
-    [
-      'missing import',
-      llmResponse("// RAW_RESPONSE_SENTINEL\ntest('example', () => {});"),
-      'vitestからのimport',
-    ],
-    [
-      'unrecognized test',
-      llmResponse("import { expect } from 'vitest'; // RAW_RESPONSE_SENTINEL"),
-      '認識できるtest/it呼出し',
     ],
   ])(
     'reports a safe generation diagnostic for %s without retrying',

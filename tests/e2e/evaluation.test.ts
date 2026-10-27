@@ -29,7 +29,7 @@ const sha = (value: string | Buffer) =>
 // reads the oracle and is deliberately limited to one missing boundary scenario.
 const generatedCode = `import { expect, test } from 'vitest';
 import { calculateOrder } from '../../src/api.ts';
-test('floors the discount', () => {
+test.each([1])('floors the discount', () => {
   expect(calculateOrder({
     lines: [{ sku: 'SKU-003', quantity: 1, unitPriceCents: 99 }],
     couponCode: 'SAVE10',
