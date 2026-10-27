@@ -11,6 +11,7 @@ LatchはCLIを自動導入せず、ログインも実装しない。対応版を
 初回はLinux（WSL 2上のUbuntuを含む）・Plus/ProのChatGPTログイン・利用者設定や管理設定のないCLI環境に対応する。既存のCodex設定を変えたくない場合は、ワークツリー外の専用ディレクトリへ公式CLIでログインできる:
 
 ```sh
+mkdir -p "$HOME/.local/share/latch/codex"
 export CODEX_HOME="$HOME/.local/share/latch/codex"
 codex login
 # CODEX_HOMEを保った同じ環境からlatch plan/runを実行する。
@@ -21,6 +22,8 @@ codex login
 ## 一次情報と選定
 
 [認証](https://developers.openai.com/codex/auth)、[料金](https://developers.openai.com/codex/pricing)、[非対話実行](https://developers.openai.com/codex/noninteractive)、[CLI参照](https://developers.openai.com/codex/cli/reference)、[設定参照](https://developers.openai.com/codex/config-reference)、[公開app-serverプロトコル](https://developers.openai.com/codex/app-server)を参照する。
+
+2026-10-27、[現行モデル案内](https://learn.chatgpt.com/docs/models)と[Plusの提供内容](https://learn.chatgpt.com/docs/pricing)を再確認した。gpt-5.4/gpt-5.4-miniはChatGPTログインのCodexでは2026-08-31に提供終了している。APIキー認証側の提供とは区別する。Plusの現行案内にあるgpt-6.1-solへprofileの例を更新した。公式CLIの版と、サーバー側モデルの提供期間は別に確認する。アカウント/クライアントの展開状況により異なり得るため、例のモデルがすべてのアカウントで利用できるとは保証せず、自動切替もしない。
 
 権限制御は、導入版と同じ [rust-v0.163.0](https://github.com/openai/codex/tree/rust-v0.163.0)（commit `83086188ae0614bd882818ff1aa23f3194962012`）の公式ソースで確認した。別版のmainから採用版の挙動を推定しない。
 
@@ -86,7 +89,7 @@ profileは [version 2](requirement-planning.md#許可profile)、providerは `cod
 
 期限を指定した場合は版・状態確認も含めて適用する。期限なしでもSIGINT/SIGTERMによるキャンセル時はプロセスグループを終了し、一時領域を削除する。時間・出力上限を指定した場合の超過も同様に終了する。必須上限を外しても送信許可・モデル用ツールの権限・資格情報保護は変えない。詳細は [上限の設定](requirement-planning.md#呼び出し量時間再試行の上限) を参照する。
 
-未導入・対応条件不一致・未ログイン・認証失敗・利用上限・不正JSON/構造化出力・タイムアウト・キャンセルを区別して終了コード2で停止する。未知のエラーは汎用の実行失敗とし、raw stdout/stderr・アカウント情報を出力しない。
+未導入・対応条件不一致・未ログイン・認証失敗・利用上限・指定モデルの非対応/提供終了・不正JSON/構造化出力・タイムアウト・キャンセルを区別して終了コード2で停止する。既知のモデルエラーは固定文言で利用者管理profileの変更を案内し、自動再試行やモデル切替はしない。未知のエラーは汎用の実行失敗とし、raw stdout/stderr・アカウント情報を出力しない。
 
 ## 検証と未実施の実利用評価
 
@@ -101,4 +104,4 @@ LATCH_OFFICIAL_CLI=/absolute/path/to/codex \
 
 新しい空HOMEを使用し、公開account/readで未ログイン、config/readでdeny profileと機能制限、thread/startで有効profile・ネットワーク制限・指示ファイル未読込を確認する。turn/startは送らない。対応外のシステム設定があるホストではskipする。通常CIは実CLIを要求せず、この任意検査をskipする。導入済み0.163.0では、空HOMEからの公開RPCによるprofileコンパイルと、最終機能設定のfeatures listによる解析（終了0）を別途確認した。これは実Plusアカウントの検証ではない。
 
-実際のPlusログインでのplan/run、敵対的入力への動作、生成品質・誤検出/見逃し・利用量は未評価。実ログイン可能な対応環境を用意し、利用者の指定した利用範囲（任意上限の有無を含む）を記録してから [評価手順](order-api-evaluation.md)で実施する。旧1 USD API予算は流用しない。現在の実モデル要求は0件で、#81を完了・自動closeしない。
+実際のPlusログインでのplan/run、敵対的入力への動作、生成品質・誤検出/見逃し・利用量は未評価。実ログイン可能な対応環境を用意し、利用者の指定した利用範囲（任意上限の有無を含む）を記録してから [評価手順](order-api-evaluation.md)で実施する。旧1 USD API予算は流用しない。開発環境の自動テストによる実モデル要求は0件。利用者の実ログインでcorrect候補のplanを1回試みたが実行失敗し、完了したplan/runはまだない（[失敗記録](evaluations/codex-real-attempt-2026-10-27.json)）。CLI内部のmodel turn数・利用量は不明で、0とは記録しない。廃止モデルを指定した設定上の問題を修正し、実測を続ける。#81を完了・自動closeしない。

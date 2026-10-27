@@ -322,6 +322,15 @@ function cliError(value: unknown): never {
     /auth|login|log in|sign in|credential|expired|unauthorized|401/i.test(error)
   )
     fail('公式CLIの認証に失敗しました。');
+  if (
+    /model.*(?:not supported|unsupported|not available|unavailable|does not exist|not found|retired|deprecated)|unsupported_model|model_not_found|model_not_available|(?:do|does) not have access to.*model/i.test(
+      error,
+    )
+  )
+    throw new RequirementPlanError(
+      '公式CLIで指定モデルを利用できません。',
+      '公式のモデル提供状況と契約を確認し、利用者管理profileのconnection.modelを利用可能なモデルへ変更してください。モデルやAPI接続の自動切替は行いません。',
+    );
   fail('公式CLIの実行に失敗しました。');
 }
 

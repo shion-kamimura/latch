@@ -198,6 +198,36 @@ describe('Codex CLI connection', () => {
         exit: 1,
         envelope: {
           type: 'turn.failed',
+          error: {
+            message:
+              "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account. secret-value",
+          },
+        },
+      },
+      '指定モデルを利用できません',
+    ],
+    [
+      {
+        exit: 1,
+        envelope: { type: 'error', message: 'model_not_found secret-value' },
+      },
+      '指定モデルを利用できません',
+    ],
+    [
+      {
+        exit: 1,
+        envelope: {
+          type: 'error',
+          message: 'You do not have access to this model. secret-value',
+        },
+      },
+      '指定モデルを利用できません',
+    ],
+    [
+      {
+        exit: 1,
+        envelope: {
+          type: 'turn.failed',
           error: { message: 'usage_limit_reached secret-value' },
         },
       },

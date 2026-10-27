@@ -127,7 +127,7 @@ test.skipIf(!command || process.platform !== 'linux')(
                   params: {
                     cwd,
                     ephemeral: true,
-                    model: 'gpt-5.4',
+                    model: 'gpt-6.1-sol',
                     approvalPolicy: 'never',
                   },
                 });
@@ -207,7 +207,7 @@ test.skipIf(!command || process.platform !== 'linux')(
         invokeOfficialCli({
           system: 'fixed system',
           user: 'do not send',
-          model: 'gpt-5.4',
+          model: 'gpt-6.1-sol',
           env: { ...env, PATH: `${path}:${env.PATH}` },
           limits: {
             maxRequests: 1,

@@ -37,6 +37,7 @@ node "$LATCH_CLI" --help
 既存のCodex設定と分けるため、Ubuntuのホーム内に専用のCODEX_HOMEを指定して、公式のログインを行います。
 
 ```sh
+mkdir -p "$HOME/.local/share/latch/codex"
 export CODEX_HOME="$HOME/.local/share/latch/codex"
 codex login
 ```
@@ -44,6 +45,8 @@ codex login
 公式の案内に沿ってChatGPT Plusアカウントでログインします。別のターミナルでも同じCODEX_HOMEを指定してください。認証ファイルをコピーしたり、APIキーをLatchへ渡したりする操作はありません。ログインだけではソース送信を許可したことにならないため、次の許可profileも必要です。
 
 利用者が管理する `~/.config/latch/my-app.json` を作り、次の例のprojectを対象プロジェクトの絶対パスへ変えます。Gitリポジトリ内に置くと拒否されます。JSON内の `~` や `$HOME` は展開されません。modelもPlusで実際に利用できるモデルに合わせてください。
+
+2026-10-27の [公式モデル案内](https://learn.chatgpt.com/docs/models) と [Plusの提供内容](https://learn.chatgpt.com/docs/pricing) に合わせて例をgpt-6.1-solへ更新しました。以前の例にあったgpt-5.4はChatGPTログインでは提供終了しています。CLIの版が対応していても、モデルの提供が終了している場合は利用できません。
 
 ```json
 {
@@ -55,7 +58,7 @@ codex login
     "project": "/home/YOUR_USER/code/my-app",
     "dataCategories": ["issue", "diff", "tests"]
   },
-  "connection": { "provider": "codex-cli", "model": "gpt-5.4" },
+  "connection": { "provider": "codex-cli", "model": "gpt-6.1-sol" },
   "execution": {
     "dependencies": { "mode": "runner", "registry": null },
     "network": { "allowedDestinations": [] }

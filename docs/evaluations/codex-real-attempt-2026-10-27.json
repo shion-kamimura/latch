@@ -1,0 +1,24 @@
+{
+  "mode": "user-reported-real-cli-attempt",
+  "date": "2026-10-27",
+  "source": "User-provided terminal output and preceding setup in this conversation; not an assistant-run request.",
+  "latchRevision": "8c4b4583c216e4506fb61bbcb31fde530b8ce3ab",
+  "case": "correct",
+  "configuredModel": "gpt-5.4 (from the provided profile setup; profile contents were not independently read)",
+  "verify": "passed",
+  "base": "477d65e17198b1b98af780ac8bb91290226652d5",
+  "snapshotDigest": "sha256:c9d81c3846a7af53b4174580d57c8e3bb55143e925580d6debd75f8b67229d83",
+  "diffDigest": "sha256:d0c3a85e671d1d93f8d804469be8168baa27f218a0875580043b4e2d8da566e1",
+  "plan": "failed with the generic official CLI execution error",
+  "inferenceExecAttempts": 1,
+  "modelTurns": null,
+  "usage": null,
+  "rawCliCauseAvailable": false,
+  "assessment": "The configured model was already retired for Codex ChatGPT sign-in. This is a confirmed setup error; without the raw CLI cause it is not proof of the only cause of the failed attempt.",
+  "officialSources": [
+    "https://learn.chatgpt.com/docs/models",
+    "https://learn.chatgpt.com/docs/pricing"
+  ],
+  "correction": "Update the example and user-managed profile explicitly to gpt-6.1-sol, which is listed in current Plus documentation. Account rollout can still vary. No automatic model fallback.",
+  "completion": "No successful real-model plan or run evaluation yet; Issue #81 remains incomplete."
+}

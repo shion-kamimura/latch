@@ -27,7 +27,7 @@ latch plan --base origin/main --issue-file issue.md --profile ~/.config/latch/ll
 
 Codex CLI 0.163.0の非対話実行・構造化出力を使います。認証と通信は未改変の公式CLIへ委譲し、Latchはキーやトークンを要求・解決・保存・コピーしません。Linux（WSL 2上のUbuntuを含む）上のChatGPT Plus/Proログインに対応し、WSL 1・CLI設定・管理者設定がある環境や未知の状態は推論前に拒否します。既存設定を変えない専用CODEX_HOMEでの公式ログインも利用できます。詳細と一次情報は [採用条件](official-cli.md) を参照してください。
 
-- モデルは許可profileの `connection.model` で指定します。設定例のモデル名は、公式CLIで利用できるモデルに合わせてください。
+- モデルは許可profileの `connection.model` で指定します。設定例のgpt-6.1-solは2026-10-27の [公式案内](https://learn.chatgpt.com/docs/models) と [Plusの提供内容](https://learn.chatgpt.com/docs/pricing) に基づきます。アカウントで実際に利用できるモデルに合わせてください。旧例のgpt-5.4はChatGPTログインのCodexで2026-08-31に提供終了しており、既存profileは利用者が明示的に更新します。
 - profileは送信許可と上限の設定です。公式CLIのログインは送信許可の代わりになりません。
 - 対象コード・設定・テストを要件計画中に実行・importしません。Vitest候補はテキストとして調査します。
 - 旧version 1・endpoint・apiKeyEnvは移行案内付きで拒否します。認証情報の移行・削除やAPI接続へのフォールバックは行いません。
@@ -48,7 +48,7 @@ Codex CLI 0.163.0の非対話実行・構造化出力を使います。認証と
   },
   "connection": {
     "provider": "codex-cli",
-    "model": "gpt-5.4"
+    "model": "gpt-6.1-sol"
   },
   "limits": {
     "maxRequests": null,
