@@ -10,11 +10,17 @@ import type {
   PlanningScope,
 } from './types.js';
 import { isInside, realPathOrNull } from '../verify/paths.js';
+import { readSourcePaths } from './source-files.js';
 
 export const SUPPORTED_PROVIDER = 'codex-cli';
 
 const MAX_PROFILE_BYTES = 64 * 1024;
-const DATA_CATEGORIES: readonly DataCategory[] = ['issue', 'diff', 'tests'];
+const DATA_CATEGORIES: readonly DataCategory[] = [
+  'issue',
+  'diff',
+  'tests',
+  'source',
+];
 // Resource ceilings are opt-in. null means no Latch-imposed limit.
 const DEFAULT_LIMITS: PlanningLimits = {
   maxRequests: null,
@@ -103,7 +109,7 @@ function readDataCategories(value: unknown): DataCategory[] {
     ) {
       profileError(
         '許可profileに未知のデータ区分があります。',
-        'allowed.dataCategoriesには issue・diff・tests だけを指定してください。',
+        'allowed.dataCategoriesには issue・diff・tests・source を指定してください。',
       );
     }
     if (!categories.includes(entry as DataCategory)) {
@@ -426,13 +432,22 @@ export function parsePlanningProfile(
     );
   }
 
+  const dataCategories = readDataCategories(allowed.dataCategories);
+  const sourceFiles = readSourcePaths(allowed.sourceFiles);
+  if (sourceFiles.length > 0 && !dataCategories.includes('source'))
+    profileError(
+      'ソース入力の送信許可がありません。',
+      'allowed.dataCategoriesへsourceを明示し、allowed.sourceFilesで対象ファイルを個別に許可してください。',
+    );
+
   return {
     id: requireString(parsed.id, 'id', 100),
     decision,
     allowed: {
       provider: allowedProvider,
       project: realPathOrNull(project) ?? project,
-      dataCategories: readDataCategories(allowed.dataCategories),
+      dataCategories,
+      sourceFiles,
     },
     connection: {
       provider: connectionProvider,

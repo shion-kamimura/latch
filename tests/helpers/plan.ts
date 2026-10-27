@@ -7,6 +7,7 @@ export interface ProfileOverrides {
   provider?: string;
   project?: string;
   dataCategories?: string[];
+  sourceFiles?: string[];
   model?: string;
   limits?: Record<string, number | null>;
   extra?: Record<string, unknown>;
@@ -25,6 +26,9 @@ export function profileContent(
         provider: overrides.provider ?? 'codex-cli',
         project,
         dataCategories: overrides.dataCategories ?? ['issue', 'diff', 'tests'],
+        ...(overrides.sourceFiles
+          ? { sourceFiles: overrides.sourceFiles }
+          : {}),
       },
       connection: {
         provider: overrides.provider ?? 'codex-cli',

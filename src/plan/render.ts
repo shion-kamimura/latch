@@ -87,6 +87,9 @@ export function renderPlanText(plan: RequirementPlan): string {
       : ['  Issue: 指定なし（差分からの推定に限られます）']),
     `  差分ファイル: ${plan.input.diff.files.length} 件`,
     `  スナップショット: sha256:${plan.input.snapshotDigest}`,
+    ...(plan.input.sourceFiles ?? []).map(
+      (file) => `  ソース入力: ${file.path}（sha256:${file.digest}）`,
+    ),
     '',
     '送信許可',
     `  profile: ${plan.permission.profileId}`,

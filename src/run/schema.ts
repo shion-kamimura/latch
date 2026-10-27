@@ -1,3 +1,4 @@
+import { readSourceManifest } from '../plan/source-files.js';
 import { RequirementPlanError } from '../plan/errors.js';
 import { conditionStates, RUN_REPORT_SCHEMA_VERSION } from './report.js';
 import type { ConditionState, EvidenceStatus, RunReport } from './types.js';
@@ -70,6 +71,11 @@ function checkInput(value: unknown, errors: string[]): void {
   if (!isRecord(value)) {
     errors.push('input がオブジェクトではありません。');
     return;
+  }
+  try {
+    readSourceManifest(value.sourceFiles);
+  } catch {
+    errors.push('input.sourceFiles のパス・digestが不正です。');
   }
   for (const field of [
     'repository',

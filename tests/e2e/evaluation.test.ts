@@ -158,6 +158,7 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
       'tsconfig.json',
       'vitest.config.ts',
       'src/api.ts',
+      'src/server.ts',
       'test/existing.test.ts',
       'issue.md',
     ]) {
@@ -196,6 +197,8 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
         profile,
         profileContent(repo.root, {
           model: 'fixed-order-api-v1',
+          dataCategories: ['issue', 'diff', 'tests', 'source'],
+          sourceFiles: ['src/api.ts', 'src/server.ts'],
           limits: { maxRequests: 1 },
           extra: {
             execution: {
@@ -227,6 +230,12 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
       const plan = JSON.parse(planned.stdout) as RequirementPlan;
       expect(plan.llm.model).toBe('fixed-order-api-v1');
       expect(plan.input.base.commit).toBe(base);
+      expect(plan.input.sourceFiles).toEqual(
+        ['src/api.ts', 'src/server.ts'].map((path) => ({
+          path,
+          digest: sha(readFileSync(join(repo.root, path))),
+        })),
+      );
       expect(plan.testCandidates.length).toBeGreaterThan(0);
       const conditionId = plan.requirements[0]!.conditions[0]!.id;
       const planPath = join(output.root, 'plan.json');
@@ -251,6 +260,8 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
       expect(json.status, json.stderr).toBe(expectedExit);
       expect(text.status, text.stderr).toBe(expectedExit);
       const report = JSON.parse(json.stdout) as RunReport;
+      expect(report.input.sourceFiles).toEqual(plan.input.sourceFiles);
+      expect(text.stdout).toContain('ソース入力: src/server.ts');
       const expected =
         mode === 'buggy'
           ? 'failed'
@@ -299,6 +310,10 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
       expect(report.isolation.cleanup.status).toBe('removed');
       expect(fingerprint(repo)).toEqual(before);
       expect(requests().length - requestStart).toBe(3); // plan + JSON run + text run
+      for (const request of mockCli.requests().slice(requestStart)) {
+        expect(request.input).toContain('export function createApp');
+        expect(request.input).toContain('Symbol.asyncIterator');
+      }
       expect(requests().join('\n')).not.toContain('withheld-oracle-sentinel');
       expect(JSON.stringify({ report, text })).not.toContain(
         'evaluation-dummy-key',
@@ -341,6 +356,7 @@ test('evaluates the complete built CLI flow against a withheld oracle', async ()
         issueDigest: report.input.issue.digest,
         diffDigest: report.input.diff.digest,
         snapshotDigest: report.input.snapshotDigest,
+        sourceFiles: report.input.sourceFiles,
         requests: requests().length - requestStart,
         elapsedMs: Math.round(performance.now() - start),
         worktreeUnchanged: true,

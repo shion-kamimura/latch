@@ -160,6 +160,9 @@ export function renderRunText(report: RunReport): string {
       `  base: ${report.input.baseRef} (${report.input.baseCommit})`,
       `  比較基点: ${report.input.mergeBase}（merge-base）`,
       `  スナップショット: sha256:${report.input.snapshotDigest}`,
+      ...(report.input.sourceFiles ?? []).map(
+        (file) => `  ソース入力: ${file.path}（sha256:${file.digest}）`,
+      ),
       `  差分: sha256:${report.input.diff.digest}`,
       `  差分区分: コミット済み ${report.input.diff.kinds.committed} 件 / 未コミット ${report.input.diff.kinds.uncommitted} 件 / 未追跡（明示） ${report.input.diff.kinds.untracked} 件`,
       ...report.input.diff.files.map(

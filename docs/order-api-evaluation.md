@@ -119,3 +119,7 @@ git -C "$EVAL_ROOT/buggy" apply "$LATCH_ROOT/fixtures/order-api/changes/buggy.pa
 その後の利用者提供計画ではgpt-6.1-solのplanが成功し、8要件・15条件を抽出した。runは証拠IDの重複でレポート出力に失敗した（[実計画・run失敗の記録](evaluations/codex-real-plan-run-2026-10-27.json)）。各テストの成否や利用量は取得できておらず、成功と数えない。固定応答の回帰を複数生成条件・修復ありにも広げ、実機での修正後runを続ける。
 
 修正後の [実correctレポートの評価](evaluations/codex-real-correct-run-2026-10-27.json) では、処理完了・16証拠IDの一意性を確認した一方、条件は検証成功4・失敗7・未検証1・要件不明確3でした。失敗7件は生成テストが想定したHTTP呼出し形式とサーバー生成方法の誤りで、correctの誤検出として扱います。runの推論起動は2回（うち修復1回）、利用量は不明です。処理完了を生成品質の合格へ読み替えず、追加モデル要求より先に入力契約の不足を改善します。
+
+## ソース入力追加後の再評価
+
+許可したsrc/api.ts・src/server.tsの全文を計画・生成・修復へ渡す機能を追加しました。[WSL実機再評価のコマンド](source-inputs.md#今回のwsl実機テストを再開する)で新しいprofile・plan・reportを作り、旧記録を保存して比較します。変更後のPlus実機評価は未実施です。固定応答回帰によるHTTP呼出しとfactory初期化の成功を、実モデルの誤検出解消として記録しません。

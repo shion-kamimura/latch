@@ -88,6 +88,8 @@ mkdir -p "$LATCH_REVIEW"
 
 Latchはコミット済み差分だけでなく、未コミットの追跡済み変更も含めます。上のgit diffはコミット間の確認用です。未追跡ファイルは既定で除外し、必要ならverify/planの両方に `--include-untracked src/new.ts` のように明示します。
 
+変更されていない型や初期化関数もAIへ渡したい場合は、[ソース入力](source-inputs.md) に従いsource区分と対象ファイルを許可します。選んだファイルの全文を送ります。追加した場合はplanから作り直してください。
+
 ## 4. verifyで入力だけを確認する
 
 ```sh

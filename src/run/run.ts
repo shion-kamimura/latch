@@ -5,6 +5,11 @@ import {
   loadPlanningProfile,
 } from '../plan/profile.js';
 import type { DataCategory, ExecutionSettings } from '../plan/types.js';
+import {
+  readSourceFiles,
+  readSourceManifest,
+  sourceManifest,
+} from '../plan/source-files.js';
 import { sha256 } from '../verify/files.js';
 import { resolveVerificationInputs } from '../verify/resolve-inputs.js';
 import {
@@ -162,11 +167,56 @@ export async function runVerification(
   }
 
   const categories = categoriesFor(runPlan, settings);
+  if (profile.allowed.sourceFiles?.length) categories.push('source');
   authorizePlanningScope(profile, {
     provider: profile.connection.provider,
     project: snapshot.repository.root,
     dataCategories: categories,
   });
+  const plannedSources = readSourceManifest(plan.input.sourceFiles);
+  if (
+    JSON.stringify(plannedSources.map((file) => file.path)) !==
+    JSON.stringify(profile.allowed.sourceFiles ?? [])
+  ) {
+    throw new RequirementPlanError(
+      '計画とprofileのソース入力の許可範囲が一致しません。',
+      '現在のprofileで latch plan を再実行してください。',
+      1,
+    );
+  }
+  const sourceFiles = readSourceFiles(
+    snapshot,
+    profile.allowed.sourceFiles ?? [],
+  );
+  if (
+    JSON.stringify(sourceManifest(sourceFiles)) !==
+    JSON.stringify(plannedSources)
+  ) {
+    throw new RequirementPlanError(
+      '計画時からソース入力の内容が変わっています。',
+      '変更を固定してから latch plan を再実行してください。',
+      1,
+    );
+  }
+  if (
+    sourceFiles.length > 0 &&
+    resolveVerificationInputs(
+      {
+        ...(planOptions.base === null ? {} : { base: planOptions.base }),
+        ...(planOptions.issueFile === null
+          ? {}
+          : { issueFile: planOptions.issueFile }),
+        includeUntracked: planOptions.includeUntracked,
+        json: false,
+      },
+      environment.cwd,
+    ).digest !== snapshot.digest
+  ) {
+    throw new RequirementPlanError(
+      'ソース入力の読取中に入力が変更されました。',
+      '変更を固定してから再計画してください。',
+    );
+  }
   assertIsolationSupported();
 
   const generationContext: GenerationContext = {
@@ -175,6 +225,7 @@ export async function runVerification(
     env: environment.env,
     snapshot,
     runPlan,
+    sourceFiles,
   };
   const generation = await generateTests(generationContext);
   const generated = [...generation.tests];
@@ -346,6 +397,7 @@ export async function runVerification(
         baseCommit: snapshot.base.commit,
         mergeBase: snapshot.base.mergeBase,
         snapshotDigest: snapshot.digest,
+        sourceFiles: sourceManifest(sourceFiles),
         planPath: runPlan.path,
         planDigest: plan.digest,
         diff: {

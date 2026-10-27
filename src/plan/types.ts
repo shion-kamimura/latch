@@ -5,7 +5,16 @@ import type {
   VerificationInputSnapshot,
 } from '../verify/types.js';
 
-export type DataCategory = 'issue' | 'diff' | 'tests';
+export type DataCategory = 'issue' | 'diff' | 'tests' | 'source';
+
+export interface SourceFileIdentity {
+  readonly path: string;
+  readonly digest: string;
+}
+
+export interface SourceFileInput extends SourceFileIdentity {
+  readonly content: string;
+}
 
 export type RequirementOrigin = 'issue-explicit' | 'diff-inferred';
 
@@ -91,6 +100,7 @@ export interface PlanningProfile {
     readonly provider: string;
     readonly project: string;
     readonly dataCategories: readonly DataCategory[];
+    readonly sourceFiles?: readonly string[];
   };
   readonly connection: {
     readonly provider: string;
@@ -134,6 +144,7 @@ export interface RequirementPlan {
       readonly includeUntracked: readonly string[];
     };
     readonly snapshotDigest: string;
+    readonly sourceFiles?: readonly SourceFileIdentity[];
   };
   readonly permission: {
     readonly profileId: string;

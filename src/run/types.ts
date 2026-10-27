@@ -11,6 +11,7 @@ import type {
   RequirementOrigin,
   RequirementPlan,
   SourceReference,
+  SourceFileIdentity,
 } from '../plan/types.js';
 
 export interface RunOptions {
@@ -139,6 +140,7 @@ export interface IsolationReport {
 }
 
 export interface RunReportInput {
+  readonly sourceFiles?: readonly SourceFileIdentity[];
   readonly repository: string;
   readonly head: string;
   readonly baseRef: string;

@@ -107,7 +107,7 @@ node dist/cli.mjs plan --base origin/main --issue-file fixtures/order-api/issue.
   --profile ~/.config/latch/llm-profile.json --json
 ```
 
-`plan` は `verify` と同じ入力スナップショットから、要件・条件、出典（Issue明示または差分推定）、既存のVitestテスト候補、不足シナリオを計画します。期待値を確定できない条件は「要件不明確」として残し、テスト候補と実行証拠を区別します。対象コード・設定・テストは実行せず、#22の評価専用テスト・正解データはLLM入力から除外します。
+`plan` は `verify` と同じ入力スナップショットから、要件・条件、出典（Issue明示または差分推定）、既存のVitestテスト候補、不足シナリオを計画します。期待値を確定できない条件は「要件不明確」として残し、テスト候補と実行証拠を区別します。対象コード・設定・テストは実行せず、#22の評価専用テスト・正解データはLLM入力から除外します。 呼び出し方をAIに伝えるため、profileで個別に許可したJS/TSソース全文を追加できます。許可方法・内容の固定・実機再評価手順は [ソース入力](docs/source-inputs.md) を参照してください。
 
 送信にはワークツリー外の利用者管理のversion 2許可profileと、公式CLIでのログインが必要です。初回はCodex CLI 0.163.0・Linux（WSL 2上のUbuntuを含む）・ChatGPT Plus/Proアカウント・CLI設定・管理者設定のない環境に限定します。専用CODEX_HOMEを使う手順は [公式CLI接続](docs/official-cli.md) を参照してください。`codex login` は利用者が公式CLIで行ってください。Latchはキーやトークンを要求・読取・保存・コピーせず、ログインと通信を公式CLIへ委譲します。profileはprovider・project・データ区分を検証し、拒否・取り消し・範囲拡大・対応条件の不一致では推論前に停止します。旧version 1、endpoint、apiKeyEnvは移行案内付きで拒否し、API接続へ戻りません。設定例は [要件計画](docs/requirement-planning.md#許可profile)、公式情報と権限制限は [公式CLI接続](docs/official-cli.md) を参照してください。
 
