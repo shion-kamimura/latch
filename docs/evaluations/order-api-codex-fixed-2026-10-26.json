@@ -1,0 +1,386 @@
+{
+  "mode": "fixed-response-regression",
+  "transport": "official-cli-process-fixture",
+  "cliVersion": "0.163.0",
+  "latchRevision": "b18be9de41723ac26349c8b47d4029b752aae3df",
+  "model": "fixed-order-api-v1",
+  "at": "2026-10-26T16:45:05.387Z",
+  "node": "v26.12.0",
+  "trialsPerCase": 1,
+  "usage": "No real model requests; token usage is not supplied by the CLI fixture; cost USD 0.",
+  "records": [
+    {
+      "case": "correct",
+      "expected": "verified",
+      "actual": "verified",
+      "conditions": [
+        {
+          "conditionId": "cond-9c0ac4c58e",
+          "state": "verified",
+          "evidenceIds": ["evidence-generated-001"]
+        }
+      ],
+      "evidence": [
+        {
+          "id": "evidence-existing-001",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 542,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-002",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 542,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-003",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 542,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-004",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 542,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-005",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 542,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-generated-001",
+          "kind": "generated",
+          "status": "passed",
+          "conditionIds": ["cond-9c0ac4c58e"],
+          "exitCode": 0,
+          "durationMs": 521,
+          "contentDigest": "abe1c4dcad7b87f1fd97bf17f45665a3cb29ff44ea42fea79dfe23881da10cae"
+        }
+      ],
+      "jsonExitCode": 0,
+      "textExitCode": 0,
+      "generation": {
+        "provider": "codex-cli",
+        "model": "fixed-order-api-v1",
+        "requestCount": 1,
+        "maxRequests": 1,
+        "repairAttempts": 0,
+        "maxRepairAttempts": 0,
+        "requestedConditions": 1,
+        "generatedFiles": 1
+      },
+      "ambiguity": null,
+      "base": "c7efd8b8e63d9cfa88256879e0100ad1be025d0e",
+      "issueDigest": "501eca656d2b129d08169b6a69bde2e870a8b35fe527f0be6207833cdd6c720b",
+      "diffDigest": "540d0901ff4773ae784f7cd5625bba7df3cf7f8a7f1aa241f99487ce400a1184",
+      "snapshotDigest": "e0dd4a656553651de4600f68ee7134e37af02737ed520329002959cd5634e527",
+      "requests": 3,
+      "elapsedMs": 2730,
+      "worktreeUnchanged": true
+    },
+    {
+      "case": "buggy",
+      "expected": "failed",
+      "actual": "failed",
+      "conditions": [
+        {
+          "conditionId": "cond-9c0ac4c58e",
+          "state": "failed",
+          "evidenceIds": ["evidence-generated-001"]
+        }
+      ],
+      "evidence": [
+        {
+          "id": "evidence-existing-001",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 529,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-002",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 529,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-003",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 529,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-004",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 529,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-005",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 529,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-generated-001",
+          "kind": "generated",
+          "status": "assertion-failed",
+          "conditionIds": ["cond-9c0ac4c58e"],
+          "exitCode": 1,
+          "durationMs": 499,
+          "contentDigest": "abe1c4dcad7b87f1fd97bf17f45665a3cb29ff44ea42fea79dfe23881da10cae"
+        }
+      ],
+      "jsonExitCode": 0,
+      "textExitCode": 0,
+      "generation": {
+        "provider": "codex-cli",
+        "model": "fixed-order-api-v1",
+        "requestCount": 1,
+        "maxRequests": 1,
+        "repairAttempts": 0,
+        "maxRepairAttempts": 0,
+        "requestedConditions": 1,
+        "generatedFiles": 1
+      },
+      "ambiguity": null,
+      "base": "c7efd8b8e63d9cfa88256879e0100ad1be025d0e",
+      "issueDigest": "501eca656d2b129d08169b6a69bde2e870a8b35fe527f0be6207833cdd6c720b",
+      "diffDigest": "eef3e7a072ddd2707b53541493c0d2fb87ac9fb4dbcdf836a61110c460c8568d",
+      "snapshotDigest": "9a8983c342be47788c8dc02f12dab89ddf0a8fc6b97638551c85faeb0e204d13",
+      "requests": 3,
+      "elapsedMs": 2749,
+      "worktreeUnchanged": true
+    },
+    {
+      "case": "ambiguous",
+      "expected": "verified",
+      "actual": "verified",
+      "conditions": [
+        {
+          "conditionId": "cond-9c0ac4c58e",
+          "state": "verified",
+          "evidenceIds": ["evidence-generated-001"]
+        },
+        {
+          "conditionId": "cond-6cd33a51ae",
+          "state": "ambiguous",
+          "evidenceIds": []
+        }
+      ],
+      "evidence": [
+        {
+          "id": "evidence-existing-001",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 509,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-002",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 509,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-003",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 509,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-004",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 509,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-005",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 509,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-generated-001",
+          "kind": "generated",
+          "status": "passed",
+          "conditionIds": ["cond-9c0ac4c58e"],
+          "exitCode": 0,
+          "durationMs": 531,
+          "contentDigest": "abe1c4dcad7b87f1fd97bf17f45665a3cb29ff44ea42fea79dfe23881da10cae"
+        }
+      ],
+      "jsonExitCode": 0,
+      "textExitCode": 0,
+      "generation": {
+        "provider": "codex-cli",
+        "model": "fixed-order-api-v1",
+        "requestCount": 1,
+        "maxRequests": 1,
+        "repairAttempts": 0,
+        "maxRepairAttempts": 0,
+        "requestedConditions": 1,
+        "generatedFiles": 1
+      },
+      "ambiguity": "ambiguous",
+      "base": "c7efd8b8e63d9cfa88256879e0100ad1be025d0e",
+      "issueDigest": "c9d03ceea1717abfbe8b1cb8592387ad187b01b4c116876b666c783d3673a37e",
+      "diffDigest": "5f9fcf9459dfa711c72f29a22dabc70b5189aa2c609ddd59f4990da15145738b",
+      "snapshotDigest": "0da2771e96863ee59b20467f58877b5c5b1f43848ab315481056ec40621edb8d",
+      "requests": 3,
+      "elapsedMs": 2694,
+      "worktreeUnchanged": true
+    },
+    {
+      "case": "impossible",
+      "expected": "execution-impossible",
+      "actual": "execution-impossible",
+      "conditions": [
+        {
+          "conditionId": "cond-9c0ac4c58e",
+          "state": "execution-impossible",
+          "evidenceIds": ["evidence-generated-001"]
+        }
+      ],
+      "evidence": [
+        {
+          "id": "evidence-existing-001",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 543,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-002",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 543,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-003",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 543,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-004",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 543,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-existing-005",
+          "kind": "existing",
+          "status": "passed",
+          "conditionIds": [],
+          "exitCode": 0,
+          "durationMs": 543,
+          "contentDigest": null
+        },
+        {
+          "id": "evidence-generated-001",
+          "kind": "generated",
+          "status": "timeout",
+          "conditionIds": ["cond-9c0ac4c58e"],
+          "exitCode": 143,
+          "durationMs": 1010,
+          "contentDigest": "2447e0e429d7ae62baa0107305dae98ffad3517012e209b3f18707eaa663c340"
+        }
+      ],
+      "jsonExitCode": 2,
+      "textExitCode": 2,
+      "generation": {
+        "provider": "codex-cli",
+        "model": "fixed-order-api-v1",
+        "requestCount": 1,
+        "maxRequests": 1,
+        "repairAttempts": 0,
+        "maxRepairAttempts": 0,
+        "requestedConditions": 1,
+        "generatedFiles": 1
+      },
+      "ambiguity": null,
+      "base": "c7efd8b8e63d9cfa88256879e0100ad1be025d0e",
+      "issueDigest": "501eca656d2b129d08169b6a69bde2e870a8b35fe527f0be6207833cdd6c720b",
+      "diffDigest": "540d0901ff4773ae784f7cd5625bba7df3cf7f8a7f1aa241f99487ce400a1184",
+      "snapshotDigest": "e0dd4a656553651de4600f68ee7134e37af02737ed520329002959cd5634e527",
+      "requests": 3,
+      "elapsedMs": 3671,
+      "worktreeUnchanged": true
+    }
+  ],
+  "fixtureHashes": {
+    "issue.md": "501eca656d2b129d08169b6a69bde2e870a8b35fe527f0be6207833cdd6c720b",
+    "src/api.ts": "cb02b816a4902cfa2282abf96090621d67fb6a97857bdcd7f956bd5805cd6017",
+    "changes/correct.patch": "dca7a21f3220d3d48109dc4af2ca0994bd4d4c3a4dd3a87cb150bbe4f22237e7",
+    "changes/buggy.patch": "def445b3342c6c3ab2612be8d2c8907bd554a038117b764fd3571bf0d82af345"
+  },
+  "settings": {
+    "maxRequestsPerCommand": 1,
+    "maxRepairAttempts": 0,
+    "executionTimeoutMs": {
+      "normal": 15000,
+      "impossible": 1000
+    },
+    "dependencyMode": "runner",
+    "network": "blocked"
+  }
+}

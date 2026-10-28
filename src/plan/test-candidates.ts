@@ -1,13 +1,9 @@
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { sha256 } from '../verify/files.js';
-import { toPosixPath } from '../verify/paths.js';
+import { isCredentialPath, toPosixPath } from '../verify/paths.js';
 import type { ExistingTestCandidate } from './types.js';
 
-const MAX_TEST_FILES = 120;
-const MAX_CANDIDATES = 240;
-const MAX_CANDIDATES_PER_FILE = 40;
-const MAX_FILE_BYTES = 256 * 1024;
 const MAX_EXCERPT_CHARACTERS = 1_200;
 const SKIPPED_DIRECTORIES = new Set([
   '.git',
@@ -77,7 +73,6 @@ function testNames(content: string): { name: string; index: number }[] {
     const name = match[2]?.trim();
     if (!name) continue;
     names.push({ name, index: match.index ?? 0 });
-    if (names.length >= MAX_CANDIDATES_PER_FILE) break;
   }
   return names;
 }
@@ -93,7 +88,6 @@ function walk(
   excluded: string[],
   warnings: string[],
 ): void {
-  if (files.length >= MAX_TEST_FILES) return;
   let entries;
   try {
     entries = readdirSync(directory, { withFileTypes: true });
@@ -105,10 +99,9 @@ function walk(
   }
   entries.sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
-    if (files.length >= MAX_TEST_FILES) return;
     const absolute = join(directory, entry.name);
     const relativePath = toPosixPath(relative(root, absolute));
-    if (entry.isSymbolicLink()) continue;
+    if (entry.isSymbolicLink() || isCredentialPath(relativePath)) continue;
     if (entry.isDirectory()) {
       if (SKIPPED_DIRECTORIES.has(entry.name)) {
         if (entry.name === 'evaluation' && relativePath.length > 0) {
@@ -136,7 +129,6 @@ export function discoverVitestCandidates(root: string): TestDiscoveryResult {
 
   const candidates: DiscoveredTestCandidate[] = [];
   for (const path of files) {
-    if (candidates.length >= MAX_CANDIDATES) break;
     const absolute = join(root, ...path.split('/'));
     let stats;
     try {
@@ -145,18 +137,6 @@ export function discoverVitestCandidates(root: string): TestDiscoveryResult {
       continue;
     }
     if (!stats.isFile() || stats.isSymbolicLink()) continue;
-    if (stats.size > MAX_FILE_BYTES) {
-      warnings.push(`テスト候補が大きすぎるため本文を省略しました: ${path}`);
-      candidates.push({
-        id: candidateId(path, path, 0),
-        path,
-        name: path,
-        framework: 'vitest',
-        matchedConditionIds: [],
-        excerpt: '',
-      });
-      continue;
-    }
     const content = decodeUtf8(absolute);
     if (content === null) {
       warnings.push(`テスト候補をUTF-8として読めませんでした: ${path}`);
@@ -175,7 +155,6 @@ export function discoverVitestCandidates(root: string): TestDiscoveryResult {
       continue;
     }
     names.forEach((entry, index) => {
-      if (candidates.length >= MAX_CANDIDATES) return;
       candidates.push({
         id: candidateId(path, entry.name, index),
         path,
@@ -185,17 +164,6 @@ export function discoverVitestCandidates(root: string): TestDiscoveryResult {
         excerpt: excerptAround(content, entry.index),
       });
     });
-  }
-
-  if (files.length >= MAX_TEST_FILES) {
-    warnings.push(
-      `テスト候補のファイル数が上限（${MAX_TEST_FILES}）に達したため、一部を探索していません。`,
-    );
-  }
-  if (candidates.length >= MAX_CANDIDATES) {
-    warnings.push(
-      `テスト候補の件数が上限（${MAX_CANDIDATES}）に達したため、一部を省略しました。`,
-    );
   }
 
   return {

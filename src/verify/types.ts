@@ -1,6 +1,7 @@
 export type ChangeKind = 'committed' | 'uncommitted' | 'untracked';
 
 export type ExclusionReason =
+  | 'credential'
   | 'binary'
   | 'symlink'
   | 'submodule'

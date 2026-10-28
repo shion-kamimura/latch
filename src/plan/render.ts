@@ -1,3 +1,4 @@
+import { formatLimit } from '../limits.js';
 import type {
   ExtractedRequirement,
   PlanState,
@@ -86,19 +87,21 @@ export function renderPlanText(plan: RequirementPlan): string {
       : ['  Issue: 指定なし（差分からの推定に限られます）']),
     `  差分ファイル: ${plan.input.diff.files.length} 件`,
     `  スナップショット: sha256:${plan.input.snapshotDigest}`,
+    ...(plan.input.sourceFiles ?? []).map(
+      (file) => `  ソース入力: ${file.path}（sha256:${file.digest}）`,
+    ),
     '',
     '送信許可',
     `  profile: ${plan.permission.profileId}`,
     `  provider: ${plan.permission.provider}`,
-    `  endpoint: ${plan.permission.endpoint}`,
     `  project: ${plan.permission.project}`,
     `  データ区分: ${plan.permission.dataCategories.join(', ')}`,
-    '  APIキーは保存・表示していません。',
+    '  認証は公式CLIへ委譲し、認証情報は読取・保存していません。',
     '',
     'LLM',
     `  model: ${plan.llm.model}`,
-    `  呼び出し回数: ${plan.llm.requestCount} / 上限 ${plan.llm.maxRequests}`,
-    `  timeout: ${plan.llm.timeoutMs}ms`,
+    `  呼び出し回数: ${plan.llm.requestCount} / 上限 ${formatLimit(plan.llm.maxRequests)}`,
+    `  timeout: ${formatLimit(plan.llm.timeoutMs, 'ms')}`,
     '',
   ];
 

@@ -5,6 +5,7 @@ import type {
 } from './types.js';
 
 const exclusionLabels: Record<ExclusionReason, string> = {
+  credential: '認証情報のパス',
   binary: 'バイナリ',
   symlink: 'シンボリックリンク',
   submodule: 'submodule',

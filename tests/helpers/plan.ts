@@ -5,13 +5,11 @@ import { join } from 'node:path';
 export interface ProfileOverrides {
   decision?: 'allowed' | 'denied' | 'revoked';
   provider?: string;
-  allowedEndpoint?: string;
-  connectionEndpoint?: string;
   project?: string;
   dataCategories?: string[];
+  sourceFiles?: string[];
   model?: string;
-  apiKeyEnv?: string;
-  limits?: Record<string, number>;
+  limits?: Record<string, number | null>;
   extra?: Record<string, unknown>;
 }
 
@@ -21,20 +19,20 @@ export function profileContent(
 ): string {
   return JSON.stringify(
     {
-      version: 1,
+      version: 2,
       id: 'test-profile',
       decision: overrides.decision ?? 'allowed',
       allowed: {
-        provider: overrides.provider ?? 'openai-compatible',
-        endpoint: overrides.allowedEndpoint ?? 'https://llm.example.test/v1',
+        provider: overrides.provider ?? 'codex-cli',
         project,
         dataCategories: overrides.dataCategories ?? ['issue', 'diff', 'tests'],
+        ...(overrides.sourceFiles
+          ? { sourceFiles: overrides.sourceFiles }
+          : {}),
       },
       connection: {
-        provider: overrides.provider ?? 'openai-compatible',
-        endpoint: overrides.connectionEndpoint ?? 'https://llm.example.test/v1',
+        provider: overrides.provider ?? 'codex-cli',
         model: overrides.model ?? 'test-model',
-        apiKeyEnv: overrides.apiKeyEnv ?? 'LATCH_API_KEY',
       },
       ...(overrides.limits ? { limits: overrides.limits } : {}),
       ...overrides.extra,

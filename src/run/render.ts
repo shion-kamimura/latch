@@ -1,3 +1,4 @@
+import { formatLimit } from '../limits.js';
 import { conditionStateLabels, conditionStates } from './report.js';
 import { assertValidRunReport } from './schema.js';
 import type {
@@ -24,6 +25,7 @@ const evidenceLabels: Record<EvidenceStatus, string> = {
 };
 
 const exclusionLabels = {
+  credential: '認証情報のパス',
   binary: 'バイナリ',
   symlink: 'シンボリックリンク',
   submodule: 'submodule',
@@ -158,6 +160,9 @@ export function renderRunText(report: RunReport): string {
       `  base: ${report.input.baseRef} (${report.input.baseCommit})`,
       `  比較基点: ${report.input.mergeBase}（merge-base）`,
       `  スナップショット: sha256:${report.input.snapshotDigest}`,
+      ...(report.input.sourceFiles ?? []).map(
+        (file) => `  ソース入力: ${file.path}（sha256:${file.digest}）`,
+      ),
       `  差分: sha256:${report.input.diff.digest}`,
       `  差分区分: コミット済み ${report.input.diff.kinds.committed} 件 / 未コミット ${report.input.diff.kinds.uncommitted} 件 / 未追跡（明示） ${report.input.diff.kinds.untracked} 件`,
       ...report.input.diff.files.map(
@@ -208,8 +213,8 @@ export function renderRunText(report: RunReport): string {
     ...section('生成', [
       `  provider: ${report.generation.provider}`,
       `  model: ${report.generation.model}`,
-      `  呼び出し回数: ${report.generation.requestCount}（1回あたり上限 ${report.generation.maxRequests}）`,
-      `  生成修正: ${report.generation.repairAttempts} / 上限 ${report.generation.maxRepairAttempts}`,
+      `  呼び出し回数: ${report.generation.requestCount}（このrunの上限 ${formatLimit(report.generation.maxRequests)}）`,
+      `  生成修正合計: ${report.generation.repairAttempts}（1条件あたり上限 ${report.generation.maxRepairAttempts}）`,
       `  対象条件: ${report.generation.requestedConditions}`,
       `  生成ファイル: ${report.generation.generatedFiles}`,
     ]),
@@ -220,7 +225,7 @@ export function renderRunText(report: RunReport): string {
       `  方式: ${report.isolation.mode}（一時コピーとNode.jsパーミッションモデル）`,
       `  入力コピー: ${report.isolation.copiedFiles} ファイル`,
       `  依存準備: ${report.isolation.dependencyMode}`,
-      `  上限: ${report.isolation.limits.timeoutMs}ms / ${report.isolation.limits.maxMemoryMb}MB / ${report.isolation.limits.maxOutputBytes}bytes`,
+      `  上限: 時間 ${formatLimit(report.isolation.limits.timeoutMs, 'ms')} / メモリ ${formatLimit(report.isolation.limits.maxMemoryMb, 'MB')} / 出力 ${formatLimit(report.isolation.limits.maxOutputBytes, 'bytes')}`,
       `  テスト通信: ${report.isolation.network}`,
       `  資格情報: ${report.isolation.credentials}`,
       ...(report.isolation.excluded.length > 0

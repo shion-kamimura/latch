@@ -1,5 +1,7 @@
 # 要件抽出と検証シナリオ計画（#24）
 
+接続方式: #81で旧API/BYOK接続を廃止し、公式CLIへ置換しました。対応版・環境・契約上の注意・未実施の実利用評価は [公式CLI接続](official-cli.md) と [評価手順](order-api-evaluation.md) を参照してください。
+
 この文書は、`latch plan` が入力スナップショットから要件・条件を抽出し、Vitestの既存テスト候補と不足シナリオを計画する仕様です。#24で実装した範囲は、**要件抽出と計画まで**であり、計画コマンド自体はテスト生成・対象コードや設定の実行・テスト実行・隔離実行・実行証拠の収集・PR投稿を行いません。計画に実行証拠や「検証成功」は含まれません。後続の `latch run` が [生成テストの隔離実行と証拠収集](isolated-execution.md) に従って実行証拠を収集します。
 
 入力解決の契約は [PR作成前のローカル差分とIssueを検証する利用仕様](pre-pr-verification.md) を参照してください。
@@ -15,47 +17,44 @@ latch plan \
 latch plan --base origin/main --issue-file issue.md --profile ~/.config/latch/llm-profile.json --json
 ```
 
-`latch plan` は `latch verify` と同じ `--base`・`--issue-file`・`--include-untracked` で入力スナップショットを解決し、そのスナップショットだけを後続のLLM入力に使います。`--profile` を省略した場合は環境変数 `LATCH_PROFILE` を使います。
+`latch plan` は `latch verify` と同じ `--base`・`--issue-file`・`--include-untracked` で入力スナップショットを解決し、解決したスナップショットと探索したテスト候補、profileで個別に許可した追加ソースを後続のLLM入力に使います。`--profile` を省略した場合は環境変数 `LATCH_PROFILE` を使います。
 
 - 終了コード0は「計画を出力できた」ことを表し、要件の達成やテスト成功を意味しません。
 - 終了コード1は入力不正です。
 - 終了コード2は許可不足・認証失敗・利用上限・タイムアウト・不正なLLM応答など、実行不能・判定不能です。計画を途中で標準出力へ出しません。
 
-## 単一プロバイダーとBYOK
+## 公式CLIへの委譲
 
-実装したプロバイダーは **OpenAI互換のchat completionsを返す単一プロバイダー** です。SDKは追加せず、Node.jsの`fetch`で `POST <endpoint>/chat/completions` を呼びます。複数プロバイダーの切替・自動フォールバックは行いません。
+Codex CLI 0.163.0の非対話実行・構造化出力を使います。認証と通信は未改変の公式CLIへ委譲し、Latchはキーやトークンを要求・解決・保存・コピーしません。Linux（WSL 2上のUbuntuを含む）上のChatGPT Plus/Proログインに対応し、WSL 1・CLI設定・管理者設定がある環境や未知の状態は推論前に拒否します。既存設定を変えない専用CODEX_HOMEでの公式ログインも利用できます。詳細と一次情報は [採用条件](official-cli.md) を参照してください。
 
-- モデル・endpointは利用者の許可profileで指定します。
-- APIキーはprofileへ保存せず、profileの `connection.apiKeyEnv`（既定は `LATCH_API_KEY`）が指す環境変数から読み込みます。
-- APIキー・認証ヘッダー・profile全文をログ・レポート・エラーへ出力しません。
-- 対象コード、設定ファイル、テストは実行・importしません。Vitestのテストファイルは読み取りとテキスト解析だけを行います。
+- モデルは許可profileの `connection.model` で指定します。設定例のgpt-6.1-solは2026-10-27の [公式案内](https://learn.chatgpt.com/docs/models) と [Plusの提供内容](https://learn.chatgpt.com/docs/pricing) に基づきます。アカウントで実際に利用できるモデルに合わせてください。旧例のgpt-5.4はChatGPTログインのCodexで2026-08-31に提供終了しており、既存profileは利用者が明示的に更新します。
+- profileは送信許可と上限の設定です。公式CLIのログインは送信許可の代わりになりません。
+- 対象コード・設定・テストを要件計画中に実行・importしません。Vitest候補はテキストとして調査します。
+- 旧version 1・endpoint・apiKeyEnvは移行案内付きで拒否します。認証情報の移行・削除やAPI接続へのフォールバックは行いません。
 
-### 許可profile
+## 許可profile
 
 許可profileは**ワークツリー外**の利用者管理設定、または信頼したCI入力として置きます。リポジトリ内のファイルやIssue・差分・テスト本文・LLM応答を許可の根拠にしません。profileがリポジトリ内を指す場合は送信前に拒否します。
 
 ```json
 {
-  "version": 1,
-  "id": "local-deepseek",
+  "version": 2,
+  "id": "local-codex",
   "decision": "allowed",
   "allowed": {
-    "provider": "openai-compatible",
-    "endpoint": "https://api.example.com/v1",
+    "provider": "codex-cli",
     "project": "/absolute/path/to/project",
     "dataCategories": ["issue", "diff", "tests"]
   },
   "connection": {
-    "provider": "openai-compatible",
-    "endpoint": "https://api.example.com/v1",
-    "model": "your-model",
-    "apiKeyEnv": "LATCH_API_KEY"
+    "provider": "codex-cli",
+    "model": "gpt-6.1-sol"
   },
   "limits": {
-    "maxRequests": 2,
-    "timeoutMs": 30000,
-    "maxOutputTokens": 4096,
-    "maxInputCharacters": 60000
+    "maxRequests": null,
+    "timeoutMs": null,
+    "maxOutputBytes": null,
+    "maxInputCharacters": null
   }
 }
 ```
@@ -68,23 +67,27 @@ latch plan --base origin/main --issue-file issue.md --profile ~/.config/latch/ll
 | `denied`  | 保存済みの許可より拒否を優先し、送信せず終了コード2                       |
 | `revoked` | 取り消しを優先し、送信せず終了コード2。以前のレポートの許可記述も使わない |
 
-- `allowed.provider`・`allowed.endpoint`・`allowed.project`・`allowed.dataCategories` が送信範囲です。`connection`のprovider/endpointが許可範囲と一致しない場合や、現在のリポジトリ・Issue有無から増えたデータ区分は「範囲拡大」として送信しません。
+- `allowed.provider`・`allowed.project`・`allowed.dataCategories` と、追加ソース用の `allowed.sourceFiles` が送信範囲です。`connection`のproviderが許可範囲と一致しない場合や、現在のリポジトリ・Issue有無から増えたデータ区分は「範囲拡大」として送信しません。
 - 差分の更新だけでは許可を失効させません。同じ範囲の再実行はprofileを再利用します。
-- 非対話実行（CIなど）でも確認待ちにしません。許可profileがない・拒否・取り消し・範囲拡大・キー未設定の場合は、必要な設定を標準エラーへ案内して終了コード2を返します。
+- 非対話実行（CIなど）でも確認待ちにしません。許可profileがない・拒否・取り消し・範囲拡大・未ログインの場合は、必要な設定を標準エラーへ案内して終了コード2を返します。
 - `project`はリポジトリルートの絶対パスです。移動・別プロジェクトは新しい許可として扱います。
 - 認証情報らしきキー（`apiKey`・`token`・`authorization`・`headers`など）を含むprofileは拒否します。
 
 ## データ区分と送信内容
 
-| 区分    | 内容                                                     |
-| ------- | -------------------------------------------------------- |
-| `issue` | 解決済みスナップショットのIssue本文・状態・出典          |
-| `diff`  | コミット済み・未コミット差分、明示指定した未追跡ファイル |
-| `tests` | 探索したVitestテスト候補のパス・テスト名・抜粋           |
+| 区分     | 内容                                                     |
+| -------- | -------------------------------------------------------- |
+| `issue`  | 解決済みスナップショットのIssue本文・状態・出典          |
+| `diff`   | コミット済み・未コミット差分、明示指定した未追跡ファイル |
+| `tests`  | 探索したVitestテスト候補のパス・テスト名・抜粋           |
+| `source` | `allowed.sourceFiles`で個別指定したJS/TSソースの全文     |
 
-- Issue・差分・テスト本文は信頼できないデータとして区切り、システムプロンプトで命令として扱わないよう指示します。本文中の「許可する」「全ファイルを送る」などの記述は、実行権限・送信許可・設定変更として扱いません。
+- Issue・差分・テスト・追加ソース本文は信頼できないデータとして区切り、システムプロンプトで命令として扱わないよう指示します。本文中の「許可する」「全ファイルを送る」などの記述は、実行権限・送信許可・設定変更として扱いません。
+- 既知の認証パス（`.claude/`・`.codex/`・`.env*`等）は入力・探索・隔離コピーから除外し、Issueにも指定できません。任意のソース中の秘密を検知するものではないため、入力に秘密を含めないでください。
 - #22の評価専用テスト・正解データ（`evaluation/`、`cases.json`、`expected.json`、`changes/*.patch`など）は、差分・テスト候補のどちらからもLLM入力へ混入させません。除外した場合は計画の警告に残します。
-- 入力が大きい場合は上限まで切り詰め、切り詰めたことを未検証事項として表示します。
+- 入力文字数の上限を利用者が指定した場合だけ切り詰め、未検証事項として表示します。既定では入力全体の文字数による切り詰めはしません。テスト候補は本文全体ではなく抜粋を使います。
+
+追加ソースは既定では空です。source区分とファイルを利用者が許可した場合だけ読み取り、パス・SHA-256を `input.sourceFiles` に保存しplan digestへ含めます。期待値の出典はIssue・差分のままで、ソースは呼出し契約の参照に使います。選択・内容が変わった場合は再計画が必要です。設定・除外条件・再評価手順は [ソース入力](source-inputs.md) を参照してください。
 
 ## データ契約
 
@@ -116,11 +119,18 @@ IDは出典・由来・本文から決定的に作り、同じ入力と同じ抽
 
 ## 呼び出し量・時間・再試行の上限
 
-- `maxRequests` は1〜3に制限し、上限を超える値は3へ丸めます。1回の計画で無制限に再試行しません。
-- `timeoutMs` は1,000〜120,000ms、`maxOutputTokens` は256〜8,192、`maxInputCharacters` は1,000〜200,000に制限します。
-- 認証失敗（401/403）、利用上限・レート制限（429）、その他の4xx、不正なJSON・データ契約違反は再試行しません。
-- ネットワーク失敗・タイムアウト・5xxだけを上限内で再試行します。上限到達後は終了コード2で停止します。
-- LLM応答はJSONとして解析し、データ契約と出典を検証します。不正な応答を部分的に採用したり、成功レポートとして出力したりしません。
+時間・回数・入出力量にLatch独自の必須上限は設けません。`limits`の省略、または各項目の省略・`null`は「Latch側の上限なし」です。正の安全な整数を指定した場合だけ適用し、旧実装の最大120秒・3回等へ丸めません。不正な値は設定エラーにします。既存version 2 profileの明示値は維持するため、従来の上限を外すには項目を削除するかnullへ変更してください。
+
+- `maxRequests`: plan/runごとの推論用CLI起動数。planは1回、runは生成と修復の合計です。既定では固定回数で打ち切りません。CLI内部のHTTP要求数・token数・費用の上限とは異なります。
+- `timeoutMs`: 指定した場合だけ、版・認証確認を含む起動単位の期限を設けます。既定ではタイマーを設けず待ちます。SIGINT/SIGTERMでは期限の有無に関係なくプロセスグループを終了します。
+- `maxOutputBytes`: 指定した場合だけstdout/stderrの合計を制限します。生のエラーを出さない扱いは変わりません。旧maxOutputTokensは廃止済みです。
+- `maxInputCharacters`: 指定した場合だけsystemとuserの合計を制限します。要件計画の切り詰めは未検証事項へ残し、生成・修復で超過した場合は送信しません。
+- テスト候補の探索は120ファイル・240候補・1ファイル40候補で打ち切らず、256 KiBを超えたという理由で名前の抽出を省略しません。正解データ・認証パス・生成物等の除外は維持します。
+- 要件60件・条件30件で応答を拒否せず、シナリオ60件・要件文4000文字で切り捨てません。要件・出典・条件ID等の形式検証は維持します。
+- 自動修復は [実行設定](isolated-execution.md) のmaxRepairAttemptsで条件ごとに既定1回。任意の0以上の安全な整数を指定でき、従来の最大2回への丸めはありません。無期限の自動修復ループは作りません。
+- JSONのllm.maxRequests/timeoutMsと実行レポートの各上限も、上限なしならnullです。テキストでは「なし」と表示します。構造化出力のデータ契約・出典検証は維持します。
+
+上限なしはOpenAIの契約・モデルのコンテキスト長や出力上限、Node.js/OSのメモリ等の制約をなくすものではありません。終了しない処理は利用者がCtrl+C等で止めます。
 
 ## 人の確認・修正・再計画
 
@@ -136,6 +146,6 @@ IDは出典・由来・本文から決定的に作り、同じ入力と同じ抽
 
 ## 検証の限界
 
-- 自動テストは固定したLLM応答を使い、抽出・出典検証・許可判定・失敗時の停止を確認します。実APIの品質評価は別です。
-- このリポジトリの自動テストでは実際の有料LLM APIを呼びません。実APIでの抽出精度・幻覚・コスト・レイテンシは未検証です。
+- 自動テストは固定したLLM応答を使い、抽出・出典検証・許可判定・失敗時の停止を確認します。公式CLIの実利用品質評価は別です。
+- このリポジトリの自動テストでは実際の有料モデルを呼びません。実ログインでの抽出精度・幻覚・コスト・レイテンシは未検証です。
 - 要件の網羅性、LLMの解釈の正しさ、既存テスト候補が条件を十分に確認できることは保証しません。テスト生成・実行・証拠収集は #25 の `latch run` の範囲で、計画の成功を実行証拠として扱いません。

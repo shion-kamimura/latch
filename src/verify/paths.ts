@@ -44,3 +44,29 @@ export function isSafeRepoRelativePath(path: string): boolean {
 export function isGitInternalPath(path: string): boolean {
   return path === '.git' || path.startsWith('.git/');
 }
+
+// Known credential locations are never model input or target-test files. This is
+// path filtering, not secret detection; callers must keep secrets out of source.
+export function isCredentialPath(path: string): boolean {
+  const parts = path.replaceAll('\\', '/').split('/');
+  const base = parts.at(-1)?.toLowerCase() ?? '';
+  return (
+    parts.some((part) =>
+      ['.claude', '.codex', '.ssh', '.aws', '.azure', '.config'].includes(
+        part.toLowerCase(),
+      ),
+    ) ||
+    base.startsWith('.env') ||
+    [
+      '.npmrc',
+      '.netrc',
+      '.git-credentials',
+      'auth.json',
+      'credentials.json',
+      '.credentials.json',
+      'id_rsa',
+      'id_ed25519',
+    ].includes(base) ||
+    /\.(?:pem|key|p12|pfx)$/u.test(base)
+  );
+}

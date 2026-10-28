@@ -37,7 +37,7 @@ export function runGit(
       cwd,
       encoding: 'buffer',
       env: gitEnvironment,
-      timeout: 30_000,
+      maxBuffer: Infinity,
       windowsHide: true,
     },
   );

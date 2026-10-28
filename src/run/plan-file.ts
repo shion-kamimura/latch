@@ -9,9 +9,6 @@ import type {
 } from '../plan/types.js';
 import type { PlanConditionInput, RunPlanInput } from './types.js';
 
-const MAX_PLAN_BYTES = 5 * 1024 * 1024;
-const MAX_TEXT = 4_000;
-
 function planError(message: string, guidance: string): never {
   throw new RequirementPlanError(message, guidance, 1);
 }
@@ -67,11 +64,8 @@ function scenariosOf(value: unknown): MissingScenario[] {
       description: stringValue(
         entry.description,
         'missingScenarios.description',
-      ).slice(0, MAX_TEXT),
-      rationale:
-        typeof entry.rationale === 'string'
-          ? entry.rationale.slice(0, MAX_TEXT)
-          : '',
+      ),
+      rationale: typeof entry.rationale === 'string' ? entry.rationale : '',
       state: entry.state === 'ambiguous' ? 'ambiguous' : 'unverified',
       evidence: 'none',
     };
@@ -93,12 +87,6 @@ export function readRunPlan(path: string, cwd: string): RunPlanInput {
     planError(
       '計画ファイルは通常ファイルではありません。',
       'latch plan --json の出力を通常ファイルへ保存してください。',
-    );
-  }
-  if (stats.size > MAX_PLAN_BYTES) {
-    planError(
-      '計画ファイルが大きすぎます。',
-      '必要な範囲の計画JSONを --plan に指定してください。',
     );
   }
 
@@ -215,7 +203,7 @@ export function readRunPlan(path: string, cwd: string): RunPlanInput {
     const requirementText = stringValue(
       rawRequirement.text,
       'requirements.text',
-    ).slice(0, MAX_TEXT);
+    );
     const requirementSource = sourceOf(rawRequirement.source);
     const requirementOrigin: RequirementOrigin =
       rawRequirement.origin === 'diff-inferred'
@@ -244,10 +232,7 @@ export function readRunPlan(path: string, cwd: string): RunPlanInput {
         requirementText,
         requirementSource,
         requirementOrigin,
-        text: stringValue(rawCondition.text, 'conditions.text').slice(
-          0,
-          MAX_TEXT,
-        ),
+        text: stringValue(rawCondition.text, 'conditions.text'),
         source: sourceOf(rawCondition.source),
         ambiguity: optionalString(rawCondition.ambiguity),
         missingScenarios: scenariosOf(rawCondition.missingScenarios),

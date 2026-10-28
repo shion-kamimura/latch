@@ -1,3 +1,4 @@
+import type { PlanningCli } from '../plan/llm.js';
 import type {
   ChangedFile,
   ExcludedFile,
@@ -10,6 +11,7 @@ import type {
   RequirementOrigin,
   RequirementPlan,
   SourceReference,
+  SourceFileIdentity,
 } from '../plan/types.js';
 
 export interface RunOptions {
@@ -21,7 +23,7 @@ export interface RunOptions {
 export interface RunEnvironment {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
-  readonly fetch: typeof fetch;
+  readonly invokeCli?: PlanningCli;
 }
 
 export interface PlanConditionInput {
@@ -127,9 +129,9 @@ export interface IsolationReport {
   readonly copiedFiles: number;
   readonly excluded: readonly string[];
   readonly limits: {
-    readonly timeoutMs: number;
-    readonly maxMemoryMb: number;
-    readonly maxOutputBytes: number;
+    readonly timeoutMs: number | null;
+    readonly maxMemoryMb: number | null;
+    readonly maxOutputBytes: number | null;
   };
   readonly cleanup: {
     readonly status: 'removed' | 'failed';
@@ -138,6 +140,7 @@ export interface IsolationReport {
 }
 
 export interface RunReportInput {
+  readonly sourceFiles?: readonly SourceFileIdentity[];
   readonly repository: string;
   readonly head: string;
   readonly baseRef: string;
@@ -177,7 +180,7 @@ export interface RunReport {
     readonly provider: string;
     readonly model: string;
     readonly requestCount: number;
-    readonly maxRequests: number;
+    readonly maxRequests: number | null;
     readonly repairAttempts: number;
     readonly maxRepairAttempts: number;
     readonly requestedConditions: number;

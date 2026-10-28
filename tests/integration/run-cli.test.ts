@@ -1,3 +1,5 @@
+import type { PlanningCli } from '../../src/plan/llm.js';
+import type { RunReport } from '../../src/run/types.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -230,47 +232,43 @@ const INVALID_GENERATED_CODE = [
   '  expect(calculateOrder({ lines: [] })).toEqual({ ok: false });',
 ].join('\n');
 
-function llmResponse(code = GENERATED_CODE): Response {
-  return new Response(
-    JSON.stringify({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              tests: [
-                {
-                  conditionId: 'cond-discount-floor',
-                  name: 'floors fractional discount cents',
-                  rationale: '99 * 10% is 9.9 cents, floored to 9.',
-                  code,
-                },
-              ],
-            }),
-          },
-        },
-      ],
-    }),
-    { status: 200, headers: { 'content-type': 'application/json' } },
-  );
+function llmResponse(code = GENERATED_CODE): string {
+  return JSON.stringify({
+    tests: [
+      {
+        conditionId: 'cond-discount-floor',
+        name: 'generated check',
+        rationale: 'fixed CLI output',
+        code,
+      },
+    ],
+  });
 }
 
-function recordingFetch(code = GENERATED_CODE): {
-  fetch: typeof fetch;
+function recordingCli(code = GENERATED_CODE): {
+  invokeCli: PlanningCli;
   bodies: string[];
 } {
   const bodies: string[] = [];
-  const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
-    bodies.push(String(init?.body ?? ''));
+  const invokeCliMock = vi.fn<PlanningCli>(async (input) => {
+    bodies.push(
+      JSON.stringify({
+        messages: [
+          { role: 'system', content: input.system },
+          { role: 'user', content: input.user },
+        ],
+      }),
+    );
     return llmResponse(code);
   });
-  return { fetch: fetchMock, bodies };
+  return { invokeCli: invokeCliMock, bodies };
 }
 
 async function run(
   repo: TestRepository,
   planPath: string,
   profilePath: string,
-  fetchImpl: typeof fetch,
+  invokeCliImpl: PlanningCli,
 ) {
   const io = { stdout: vi.fn(), stderr: vi.fn() };
   const status = await runCli(
@@ -279,7 +277,7 @@ async function run(
     {
       cwd: repo.root,
       env: { LATCH_API_KEY: 'secret-value' },
-      fetch: fetchImpl,
+      invokeCli: invokeCliImpl,
     },
   );
   return { status, io };
@@ -296,6 +294,384 @@ afterEach(() => {
 
 describe('run command isolated execution', () => {
   test.each([
+    [
+      'test.each',
+      GENERATED_CODE.replace(
+        "test('floors fractional discount cents',",
+        "test.each([1, 2])('floors fractional discount cents %i',",
+      ),
+      2,
+    ],
+    [
+      'test.for',
+      GENERATED_CODE.replace(
+        "test('floors fractional discount cents',",
+        "test.for([1, 2])('floors fractional discount cents',",
+      ),
+      2,
+    ],
+    [
+      'it.each',
+      GENERATED_CODE.replace('{ expect, test }', '{ expect, it }').replace(
+        "test('floors fractional discount cents',",
+        "it.each([1, 2])('floors fractional discount cents %i',",
+      ),
+      2,
+    ],
+    [
+      'aliased import',
+      GENERATED_CODE.replace(
+        '{ expect, test }',
+        '{ expect, test as check }',
+      ).replace("test('floors", "check('floors"),
+      1,
+    ],
+    [
+      'namespace import',
+      GENERATED_CODE.replace(
+        "import { expect, test } from 'vitest';",
+        "import * as vt from 'vitest';",
+      )
+        .replace("test('floors", "vt.test('floors")
+        .replace('  expect(', '  vt.expect('),
+      1,
+    ],
+  ] as const)(
+    'delegates %s registration to Vitest',
+    async (_syntax, code, assertions) => {
+      const repo = repositoryWithChange('correct');
+      const planPath = planFile(repo, temporary());
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root),
+      );
+      const recorder = recordingCli(code);
+      const { status, io } = await run(
+        repo,
+        planPath,
+        profile,
+        recorder.invokeCli,
+      );
+      expect(status, io.stderr.mock.calls.flat().join('\n')).toBe(0);
+      const report = JSON.parse(
+        io.stdout.mock.calls[0]?.[0] as string,
+      ) as RunReport;
+      expect(report.conditions[0]?.state).toBe('verified');
+      const generated = report.evidence.filter((e) => e.kind === 'generated');
+      expect(generated).toHaveLength(assertions);
+      expect(generated.every((e) => e.status === 'passed')).toBe(true);
+      expect(report.generation.repairAttempts).toBe(0);
+      expect(recorder.bodies).toHaveLength(1);
+    },
+    15_000,
+  );
+
+  test('retains actual assertion failures in parameterized generated tests', async () => {
+    const repo = repositoryWithChange('buggy');
+    const planPath = planFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root),
+    );
+    const recorder = recordingCli(
+      GENERATED_CODE.replace(
+        "test('floors fractional discount cents',",
+        "test.each([1, 2])('floors fractional discount cents %i',",
+      ),
+    );
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
+    expect(status).toBe(0);
+    const report = JSON.parse(
+      io.stdout.mock.calls[0]?.[0] as string,
+    ) as RunReport;
+    expect(report.conditions[0]?.state).toBe('failed');
+    expect(
+      report.evidence.filter(
+        (e) => e.kind === 'generated' && e.status === 'assertion-failed',
+      ),
+    ).toHaveLength(2);
+    expect(report.generation.repairAttempts).toBe(0);
+    expect(recorder.bodies).toHaveLength(1);
+  }, 15_000);
+
+  test.each([
+    [
+      'no registered tests',
+      "import { expect } from 'vitest'; // test('comment only')",
+    ],
+    ['missing import', "test('missing import', () => {});"],
+  ])(
+    'does not verify generated code with %s',
+    async (_name, code) => {
+      const repo = repositoryWithChange('correct');
+      const planPath = planFile(repo, temporary());
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root, {
+          extra: { execution: { limits: { maxRepairAttempts: 0 } } },
+        }),
+      );
+      const recorder = recordingCli(code);
+      const { status, io } = await run(
+        repo,
+        planPath,
+        profile,
+        recorder.invokeCli,
+      );
+      expect(status).toBe(0);
+      const report = JSON.parse(
+        io.stdout.mock.calls[0]?.[0] as string,
+      ) as RunReport;
+      expect(report.conditions[0]?.state).toBe('unverified');
+      expect(report.requirements[0]?.state).toBe('unverified');
+      expect(
+        report.evidence.some(
+          (e) =>
+            e.kind === 'generated' && e.status === 'invalid-generated-test',
+        ),
+      ).toBe(true);
+      expect(recorder.bodies).toHaveLength(1);
+    },
+    15_000,
+  );
+
+  test.each([
+    ['invalid JSON', 'RAW_RESPONSE_SENTINEL', '応答全体'],
+    [
+      'missing array',
+      JSON.stringify({ tests: 'RAW_RESPONSE_SENTINEL' }),
+      'tests: 配列',
+    ],
+    [
+      'invalid entry',
+      JSON.stringify({ tests: ['RAW_RESPONSE_SENTINEL'] }),
+      'tests[0]: オブジェクト',
+    ],
+    [
+      'invalid ID type',
+      JSON.stringify({ tests: [{ conditionId: 42, code: GENERATED_CODE }] }),
+      'conditionId: 文字列',
+    ],
+    [
+      'unknown ID',
+      JSON.stringify({
+        tests: [{ conditionId: 'RAW_RESPONSE_SENTINEL', code: GENERATED_CODE }],
+      }),
+      '生成対象にない条件ID',
+    ],
+    [
+      'duplicate ID',
+      JSON.stringify({
+        tests: [0, 1].map(() => ({
+          conditionId: 'cond-discount-floor',
+          code: GENERATED_CODE,
+          name: 'RAW_RESPONSE_SENTINEL',
+        })),
+      }),
+      'tests[1].conditionId: 条件IDが重複',
+    ],
+    [
+      'invalid code type',
+      JSON.stringify({
+        tests: [
+          {
+            conditionId: 'cond-discount-floor',
+            code: { value: 'RAW_RESPONSE_SENTINEL' },
+          },
+        ],
+      }),
+      'code: 文字列',
+    ],
+    [
+      'empty code',
+      JSON.stringify({
+        tests: [{ conditionId: 'cond-discount-floor', code: ' ' }],
+      }),
+      'code: 空',
+    ],
+    [
+      'NUL code',
+      llmResponse(`${GENERATED_CODE}\u0000RAW_RESPONSE_SENTINEL`),
+      'code: NUL文字',
+    ],
+  ])(
+    'reports a safe generation diagnostic for %s without retrying',
+    async (_name, response, diagnostic) => {
+      const repo = repositoryWithChange('buggy');
+      const planPath = planFile(repo, temporary());
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root),
+      );
+      const invokeCli = vi.fn<PlanningCli>(async () => response);
+      const before = gitStatus(repo);
+      const { status, io } = await run(repo, planPath, profile, invokeCli);
+      expect(status).toBe(2);
+      expect(io.stdout).not.toHaveBeenCalled();
+      const stderr = io.stderr.mock.calls.flat().join('\n');
+      expect(stderr).toContain(diagnostic);
+      expect(stderr).toContain('（初回生成）');
+      expect(stderr).not.toContain('RAW_RESPONSE_SENTINEL');
+      expect(stderr).not.toContain(GENERATED_CODE);
+      expect(invokeCli).toHaveBeenCalledTimes(1);
+      expect(gitStatus(repo)).toBe(before);
+    },
+  );
+
+  test('distinguishes an explicit generated file size limit from a response format error', async () => {
+    const repo = repositoryWithChange('buggy');
+    const planPath = planFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root, {
+        extra: { execution: { limits: { maxGeneratedFileBytes: 10 } } },
+      }),
+    );
+    const recorder = recordingCli();
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
+    expect(status).toBe(2);
+    expect(io.stdout).not.toHaveBeenCalled();
+    expect(io.stderr.mock.calls.flat().join('\n')).toContain(
+      'tests[0].code: profileで指定したmaxGeneratedFileBytes',
+    );
+    expect(recorder.bodies).toHaveLength(1);
+  });
+
+  test('reports a repair response diagnostic without exposing code or retrying again', async () => {
+    const repo = repositoryWithChange('buggy');
+    const planPath = planFile(repo, temporary());
+    const profile = profileDirectory().write(
+      'profile.json',
+      profileContent(repo.root),
+    );
+    const invokeCli = vi
+      .fn<PlanningCli>()
+      .mockResolvedValueOnce(llmResponse(INVALID_GENERATED_CODE))
+      .mockResolvedValueOnce(JSON.stringify({ tests: [] }));
+    const { status, io } = await run(repo, planPath, profile, invokeCli);
+    expect(status).toBe(2);
+    expect(io.stdout).not.toHaveBeenCalled();
+    expect(io.stderr.mock.calls.flat().join('\n')).toContain(
+      '修復応答には同じ条件のテストが1件必要',
+    );
+    expect(io.stderr.mock.calls.flat().join('\n')).toContain('（修復）');
+    expect(invokeCli).toHaveBeenCalledTimes(2);
+  }, 15_000);
+
+  test.each([false, true])(
+    'keeps evidence unique and linked to the right condition across generated suites (repair=%s)',
+    async (repair) => {
+      const repo = repositoryWithChange('buggy');
+      const planPath = planFile(repo, temporary());
+      const plan = JSON.parse(readFileSync(planPath, 'utf8'));
+      const original = plan.requirements[0].conditions[0];
+      plan.requirements[0].text =
+        'Accept the quantity limit and floor coupon discounts.';
+      plan.requirements[0].conditions.push({
+        ...original,
+        id: 'cond-quantity-boundary',
+        text: 'Accept quantity exactly MAX_UNITS_PER_LINE.',
+        missingScenarios: [
+          {
+            ...original.missingScenarios[0],
+            id: 'scenario-quantity-boundary',
+            conditionId: 'cond-quantity-boundary',
+            description: 'An order at the maximum quantity is accepted.',
+          },
+        ],
+      });
+      writeFileSync(planPath, JSON.stringify(plan));
+      const boundaryCode = [
+        "import { expect, test } from 'vitest';",
+        "import { calculateOrder, MAX_UNITS_PER_LINE } from '../../src/api.ts';",
+        "test('accepts the inclusive quantity boundary', () => {",
+        "  expect(calculateOrder({ lines: [{ sku: 'ABC', quantity: MAX_UNITS_PER_LINE, unitPriceCents: 1 }] })).toEqual({",
+        '    ok: true, value: { subtotalCents: MAX_UNITS_PER_LINE, totalCents: MAX_UNITS_PER_LINE, appliedCoupon: null }',
+        '  });',
+        '});',
+      ].join('\n');
+      const boundary = {
+        conditionId: 'cond-quantity-boundary',
+        name: 'quantity boundary',
+        rationale: 'boundary coverage',
+        code: boundaryCode,
+      };
+      const invokeCli = vi.fn<PlanningCli>(async (input) =>
+        JSON.stringify({
+          tests: input.user.includes('## Repair one generated Vitest test')
+            ? [boundary]
+            : [
+                {
+                  ...boundary,
+                  code: repair ? INVALID_GENERATED_CODE : boundaryCode,
+                },
+                {
+                  conditionId: 'cond-discount-floor',
+                  name: 'fractional discount',
+                  rationale: 'rounding coverage',
+                  code: GENERATED_CODE,
+                },
+              ],
+        }),
+      );
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root),
+      );
+      const before = gitStatus(repo);
+      const { status, io } = await run(repo, planPath, profile, invokeCli);
+      expect(status).toBe(0);
+      const report = JSON.parse(
+        io.stdout.mock.calls[0]?.[0] as string,
+      ) as RunReport;
+      expect(new Set(report.evidence.map((item) => item.id)).size).toBe(
+        report.evidence.length,
+      );
+      const boundaryCondition = report.conditions.find(
+        (item) => item.conditionId === boundary.conditionId,
+      )!;
+      const discountCondition = report.conditions.find(
+        (item) => item.conditionId === 'cond-discount-floor',
+      )!;
+      expect(boundaryCondition.state).toBe('verified');
+      expect(discountCondition.state).toBe('failed');
+      expect(boundaryCondition.evidenceIds).toHaveLength(1);
+      expect(discountCondition.evidenceIds).toHaveLength(1);
+      expect(boundaryCondition.evidenceIds[0]).not.toBe(
+        discountCondition.evidenceIds[0],
+      );
+      for (const condition of report.conditions)
+        for (const id of condition.evidenceIds)
+          expect(
+            report.evidence.find((item) => item.id === id)?.conditionIds,
+          ).toContain(condition.conditionId);
+      expect(
+        report.evidence.find(
+          (item) => item.id === boundaryCondition.evidenceIds[0],
+        )?.content,
+      ).toBe(boundaryCode);
+      expect(
+        report.evidence.find(
+          (item) => item.id === discountCondition.evidenceIds[0],
+        )?.content,
+      ).toBe(GENERATED_CODE);
+      expect(report.generation.repairAttempts).toBe(Number(repair));
+      expect(invokeCli).toHaveBeenCalledTimes(repair ? 2 : 1);
+      expect(gitStatus(repo)).toBe(before);
+    },
+    30_000,
+  );
+  test.each([
     ['correct', 'verified', 'passed'],
     ['buggy', 'failed', 'assertion-failed'],
   ] as const)(
@@ -307,10 +683,15 @@ describe('run command isolated execution', () => {
         'profile.json',
         profileContent(repo.root),
       );
-      const recorder = recordingFetch();
+      const recorder = recordingCli();
       const before = gitStatus(repo);
 
-      const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+      const { status, io } = await run(
+        repo,
+        planPath,
+        profile,
+        recorder.invokeCli,
+      );
 
       expect(status).toBe(0);
       const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
@@ -364,46 +745,58 @@ describe('run command isolated execution', () => {
     },
   );
 
-  test('does not treat an invalid generated test as a product failure', async () => {
-    const repo = repositoryWithChange('correct');
-    const planPath = planFile(repo, temporary());
-    const profile = profileDirectory().write(
-      'profile.json',
-      profileContent(repo.root),
-    );
-    const recorder = recordingFetch(INVALID_GENERATED_CODE);
+  test.each([1, 2, 5, null])(
+    'does not treat invalid generated tests as product failures with a %s-call budget',
+    async (maxRequests) => {
+      const repo = repositoryWithChange('correct');
+      const planPath = planFile(repo, temporary());
+      const profile = profileDirectory().write(
+        'profile.json',
+        profileContent(repo.root, {
+          limits: { maxRequests },
+          extra: { execution: { limits: { maxRepairAttempts: 4 } } },
+        }),
+      );
+      const recorder = recordingCli(INVALID_GENERATED_CODE);
 
-    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+      const { status, io } = await run(
+        repo,
+        planPath,
+        profile,
+        recorder.invokeCli,
+      );
 
-    expect(status).toBe(0);
-    const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
-      conditions: { state: string; notes: string[] }[];
-      evidence: { kind: string; status: string }[];
-      generation: { repairAttempts: number; maxRepairAttempts: number };
-    };
-    expect(report.generation.repairAttempts).toBe(1);
-    expect(report.generation.maxRepairAttempts).toBe(1);
-    expect(
-      report.evidence.find((item) => item.kind === 'generated')?.status,
-    ).toBe('invalid-generated-test');
-    expect(report.conditions[0]?.state).toBe('unverified');
-    expect(report.conditions[0]?.notes.join('')).toContain(
-      '製品不具合の証拠として扱いません',
-    );
-    expect(recorder.bodies).toHaveLength(2);
-  });
+      expect(status).toBe(0);
+      const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
+        conditions: { state: string; notes: string[] }[];
+        evidence: { kind: string; status: string }[];
+        generation: { repairAttempts: number; maxRepairAttempts: number };
+      };
+      expect(report.generation.repairAttempts).toBe((maxRequests ?? 5) - 1);
+      expect(report.generation.maxRepairAttempts).toBe(4);
+      expect(
+        report.evidence.find((item) => item.kind === 'generated')?.status,
+      ).toBe('invalid-generated-test');
+      expect(report.conditions[0]?.state).toBe('unverified');
+      expect(report.conditions[0]?.notes.join('')).toContain(
+        '製品不具合の証拠として扱いません',
+      );
+      expect(recorder.bodies).toHaveLength(maxRequests ?? 5);
+    },
+    30_000,
+  );
 
   test('fails closed without a profile and does not execute tests', async () => {
     const repo = repositoryWithChange('correct');
     const planPath = planFile(repo, temporary());
     const before = gitStatus(repo);
-    const fetchMock = vi.fn<typeof fetch>(async () => llmResponse());
+    const invokeCliMock = vi.fn<PlanningCli>(async () => llmResponse());
     const io = { stdout: vi.fn(), stderr: vi.fn() };
 
     const status = await runCli(['run', '--plan', planPath], io, {
       cwd: repo.root,
       env: { LATCH_API_KEY: 'secret-value' },
-      fetch: fetchMock,
+      invokeCli: invokeCliMock,
     });
 
     expect(status).toBe(2);
@@ -411,7 +804,7 @@ describe('run command isolated execution', () => {
     expect(io.stderr).toHaveBeenCalledWith(
       expect.stringContaining('--profile'),
     );
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(invokeCliMock).not.toHaveBeenCalled();
     expect(gitStatus(repo)).toBe(before);
   });
 
@@ -426,7 +819,7 @@ describe('run command isolated execution', () => {
       'src/api.ts',
       `${readFileSync(join(repo.root, 'src/api.ts'), 'utf8')}\n// changed after plan\n`,
     );
-    const fetchMock = vi.fn<typeof fetch>(async () => llmResponse());
+    const invokeCliMock = vi.fn<PlanningCli>(async () => llmResponse());
     const io = { stdout: vi.fn(), stderr: vi.fn() };
 
     const status = await runCli(
@@ -435,12 +828,12 @@ describe('run command isolated execution', () => {
       {
         cwd: repo.root,
         env: { LATCH_API_KEY: 'secret-value' },
-        fetch: fetchMock,
+        invokeCli: invokeCliMock,
       },
     );
 
     expect(status).toBe(1);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(invokeCliMock).not.toHaveBeenCalled();
     expect(io.stderr).toHaveBeenCalledWith(
       expect.stringContaining('一致しません'),
     );
@@ -453,9 +846,14 @@ describe('run command isolated execution', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch();
+    const recorder = recordingCli();
 
-    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
 
     expect(status).toBe(0);
     const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
@@ -532,9 +930,14 @@ describe('run command isolated execution', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch();
+    const recorder = recordingCli();
 
-    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
 
     expect(status).toBe(0);
     const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
@@ -587,9 +990,14 @@ describe('run command isolated execution', () => {
         },
       }),
     );
-    const recorder = recordingFetch(SLOW_GENERATED_CODE);
+    const recorder = recordingCli(SLOW_GENERATED_CODE);
 
-    const { status, io } = await run(repo, planPath, profile, recorder.fetch);
+    const { status, io } = await run(
+      repo,
+      planPath,
+      profile,
+      recorder.invokeCli,
+    );
 
     expect(status).toBe(2);
     const report = JSON.parse(io.stdout.mock.calls[0]?.[0] as string) as {
@@ -614,7 +1022,7 @@ describe('run command isolated execution', () => {
       'profile.json',
       profileContent(repo.root),
     );
-    const recorder = recordingFetch();
+    const recorder = recordingCli();
     const io = {
       stdout: vi.fn(() => {
         throw new Error('write failed');
@@ -628,7 +1036,7 @@ describe('run command isolated execution', () => {
       {
         cwd: repo.root,
         env: { LATCH_API_KEY: 'secret-value' },
-        fetch: recorder.fetch,
+        invokeCli: recorder.invokeCli,
       },
     );
 

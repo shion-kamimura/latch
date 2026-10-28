@@ -6,7 +6,6 @@ import {
   authorizePlanningScope,
   loadPlanningProfile,
   parsePlanningProfile,
-  resolveApiKey,
 } from '../../src/plan/profile.js';
 import {
   createProfileDirectory,
@@ -43,7 +42,51 @@ afterEach(() => {
 });
 
 describe('planning permission profile', () => {
-  test('parses an allowed profile and applies bounded defaults', () => {
+  test.each([undefined, null])(
+    'does not impose optional resource ceilings for %s',
+    (value) => {
+      const profile = parsePlanningProfile(
+        profileContent(
+          temporary().root,
+          value === undefined
+            ? {}
+            : {
+                limits: {
+                  timeoutMs: value ?? null,
+                  maxRequests: value ?? null,
+                },
+                extra: {
+                  execution: { limits: { maxOutputBytes: value ?? null } },
+                },
+              },
+        ),
+        '/tmp/profile.json',
+      );
+      expect(Object.values(profile.limits)).toEqual([null, null, null, null]);
+      expect(profile.execution?.limits).toEqual({
+        timeoutMs: null,
+        maxMemoryMb: null,
+        maxOutputBytes: null,
+        maxGeneratedFiles: null,
+        maxGeneratedFileBytes: null,
+        maxRepairAttempts: 1,
+      });
+    },
+  );
+  test.each([-1, 0, 1.5, '30000', Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid resource limits instead of replacing %s',
+    (timeoutMs) => {
+      expect(() =>
+        parsePlanningProfile(
+          profileContent(temporary().root, {
+            extra: { limits: { timeoutMs } },
+          }),
+          '/tmp/profile.json',
+        ),
+      ).toThrow('正の整数または null');
+    },
+  );
+  test('uses caller-selected planning limits without clamping', () => {
     const project = temporary().root;
     const profile = parsePlanningProfile(
       profileContent(project, { limits: { maxRequests: 99, timeoutMs: 1 } }),
@@ -54,18 +97,16 @@ describe('planning permission profile', () => {
       id: 'test-profile',
       decision: 'allowed',
       allowed: {
-        provider: 'openai-compatible',
-        endpoint: 'https://llm.example.test/v1',
+        provider: 'codex-cli',
         project,
         dataCategories: ['issue', 'diff', 'tests'],
       },
       connection: {
         model: 'test-model',
-        apiKeyEnv: 'LATCH_API_KEY',
       },
       limits: {
-        maxRequests: 3,
-        timeoutMs: 1_000,
+        maxRequests: 99,
+        timeoutMs: 1,
       },
     });
   });
@@ -97,7 +138,7 @@ describe('planning permission profile', () => {
     expect(profile.path).toBe(join(profiles.root, 'profile.json'));
   });
 
-  test('rejects stored credentials and credential-bearing endpoints', () => {
+  test('rejects stored credentials', () => {
     const project = temporary().root;
     const tokenError = expectPlanError(() =>
       parsePlanningProfile(
@@ -106,16 +147,6 @@ describe('planning permission profile', () => {
       ),
     );
     expect(tokenError.message).toContain('認証情報');
-
-    const endpointError = expectPlanError(() =>
-      parsePlanningProfile(
-        profileContent(project, {
-          allowedEndpoint: 'https://user:pass@llm.example.test/v1',
-        }),
-        '/tmp/profile.json',
-      ),
-    );
-    expect(endpointError.message).toContain('認証情報');
   });
 
   test('rejects an unsupported provider', () => {
@@ -126,7 +157,7 @@ describe('planning permission profile', () => {
         '/tmp/profile.json',
       ),
     );
-    expect(error.message).toContain('openai-compatible');
+    expect(error.message).toContain('codex-cli');
   });
 
   test('allows the same scope repeatedly without confirmation', () => {
@@ -136,8 +167,7 @@ describe('planning permission profile', () => {
       '/tmp/profile.json',
     );
     const scope = {
-      provider: 'openai-compatible',
-      endpoint: 'https://llm.example.test/v1',
+      provider: 'codex-cli',
       project,
       dataCategories: ['issue', 'diff', 'tests'] as const,
     };
@@ -149,8 +179,7 @@ describe('planning permission profile', () => {
   test('denies and revokes before any send even when another scope matches', () => {
     const project = temporary().root;
     const scope = {
-      provider: 'openai-compatible',
-      endpoint: 'https://llm.example.test/v1',
+      provider: 'codex-cli',
       project,
       dataCategories: ['issue', 'diff', 'tests'] as const,
     };
@@ -170,32 +199,16 @@ describe('planning permission profile', () => {
     }
   });
 
-  test('requires a new permission for endpoint, project, and data expansion', () => {
+  test('requires a new permission for project and data expansion', () => {
     const project = temporary().root;
     const base = profileContent(project, {
       dataCategories: ['diff'],
     });
     const profile = parsePlanningProfile(base, '/tmp/profile.json');
 
-    const endpointProfile = parsePlanningProfile(
-      profileContent(project, {
-        connectionEndpoint: 'https://other.example.test/v1',
-      }),
-      '/tmp/profile.json',
-    );
-    expect(() =>
-      authorizePlanningScope(endpointProfile, {
-        provider: 'openai-compatible',
-        endpoint: 'https://other.example.test/v1',
-        project,
-        dataCategories: ['diff'],
-      }),
-    ).toThrow(/endpoint/);
-
     expect(() =>
       authorizePlanningScope(profile, {
-        provider: 'openai-compatible',
-        endpoint: 'https://llm.example.test/v1',
+        provider: 'codex-cli',
         project: temporary().root,
         dataCategories: ['diff'],
       }),
@@ -203,30 +216,47 @@ describe('planning permission profile', () => {
 
     expect(() =>
       authorizePlanningScope(profile, {
-        provider: 'openai-compatible',
-        endpoint: 'https://llm.example.test/v1',
+        provider: 'codex-cli',
         project,
         dataCategories: ['diff', 'issue'],
       }),
     ).toThrow(/データ区分/);
   });
 
-  test('reads the API key only from the configured environment variable', () => {
+  test('rejects legacy API profiles with migration guidance and no credential lookup', () => {
     const project = temporary().root;
-    const profile = parsePlanningProfile(
-      profileContent(project, { apiKeyEnv: 'BYOK_KEY' }),
-      '/tmp/profile.json',
-    );
-
-    expect(resolveApiKey(profile, { BYOK_KEY: 'secret' })).toBe('secret');
-    const error = expectPlanError(() =>
-      resolveApiKey(profile, { BYOK_KEY: '' }),
-    );
-    expect(error.message).toContain('BYOK_KEY');
-    expect(error.message).not.toContain('secret');
+    for (const legacy of [
+      { ...JSON.parse(profileContent(project)), version: 1 },
+      {
+        ...JSON.parse(profileContent(project)),
+        limits: { maxOutputTokens: 4096 },
+      },
+      {
+        ...JSON.parse(profileContent(project)),
+        connection: {
+          provider: 'codex-cli',
+          model: 'test',
+          endpoint: 'https://example.test',
+        },
+      },
+      {
+        ...JSON.parse(profileContent(project)),
+        connection: {
+          provider: 'codex-cli',
+          model: 'test',
+          apiKeyEnv: 'SECRET',
+        },
+      },
+    ]) {
+      const error = expectPlanError(() =>
+        parsePlanningProfile(JSON.stringify(legacy), '/tmp/profile.json'),
+      );
+      expect(error.message).toContain('旧API');
+      expect(error.guidance).toContain('version: 2');
+    }
   });
 
-  test('parses execution settings and clamps limits', () => {
+  test('uses caller-selected execution limits without clamping', () => {
     const project = temporary().root;
     const profile = parsePlanningProfile(
       profileContent(project, {
@@ -258,12 +288,12 @@ describe('planning permission profile', () => {
       },
       network: { allowedDestinations: ['https://api.example.test'] },
       limits: {
-        timeoutMs: 300_000,
-        maxMemoryMb: 128,
-        maxOutputBytes: 1_000_000,
-        maxGeneratedFiles: 30,
-        maxGeneratedFileBytes: 1_000,
-        maxRepairAttempts: 2,
+        timeoutMs: 999_999,
+        maxMemoryMb: 1,
+        maxOutputBytes: 9_999_999,
+        maxGeneratedFiles: 100,
+        maxGeneratedFileBytes: 1,
+        maxRepairAttempts: 9,
       },
     });
   });

@@ -1,0 +1,40 @@
+{
+  "mode": "user-reported-real-plan-and-run",
+  "date": "2026-10-27",
+  "source": "Plan JSON uploaded by the user and subsequent terminal output in this conversation. The assistant did not operate the user device.",
+  "observedLatchRevision": null,
+  "expectedRevisionFromInstructions": "37133daa477c346c21d029909a094076a81c481c",
+  "environment": "User-reported WSL 2 Ubuntu; Node 26.12.0, pnpm 12.14.0, Codex 0.163.0, ChatGPT Plus login.",
+  "plan": {
+    "result": "succeeded",
+    "sourceSha256": "8b6733120cdb193eb3ce0fd564b1206469cfb930ac50a4b13c0ff15e270148e6",
+    "planDigest": "e7ddc69672de2d0d4e6077516ef09fc751df20f7b63f4d2576cb5f1510d07ac4",
+    "snapshotDigest": "c9d81c3846a7af53b4174580d57c8e3bb55143e925580d6debd75f8b67229d83",
+    "model": "gpt-6.1-sol",
+    "inferenceExecStarts": 1,
+    "maxRequests": null,
+    "timeoutMs": null,
+    "requirements": 8,
+    "conditions": 15,
+    "ambiguousConditions": 3,
+    "generationCandidates": 11,
+    "existingTestCandidates": 5,
+    "unverified": [
+      "Discount rounding unit is ambiguous (yen wording versus Cents fields).",
+      "Existing routing and malformed-JSON responses are not specified in the supplied input."
+    ]
+  },
+  "run": {
+    "result": "report-validation-failed",
+    "exitCode": 2,
+    "error": "evidence[6].id is duplicated",
+    "testResults": null,
+    "inferenceExecStarts": null,
+    "modelTurns": null,
+    "usage": null,
+    "rootCause": "Evidence IDs used only test kind and a per-suite counter; different generated-test suites restarted the same ID sequence.",
+    "fix": "Include the unique suite execution name, including repair attempt, in evidence IDs.",
+    "regression": "Two generated conditions, one passing and one failing, with and without repair. Both failed before the fix; unique IDs and correct condition-to-evidence references are checked after the fix."
+  },
+  "completion": "Real plan succeeded. No valid real-model run report or buggy-case evaluation yet; user rerun after the fix is pending."
+}

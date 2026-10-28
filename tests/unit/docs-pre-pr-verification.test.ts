@@ -97,6 +97,6 @@ describe('pre-PR verification spec', () => {
     expect(planning).toContain('## 許可profile');
     expect(planning).toContain('## データ契約');
     expect(planning).toContain('## 人の確認・修正・再計画');
-    expect(planning).toContain('実APIの品質評価は別');
+    expect(planning).toContain('公式CLIの実利用品質評価は別');
   });
 });

@@ -3,12 +3,9 @@ import { resolveVerificationInputs } from '../verify/resolve-inputs.js';
 import { RequirementPlanError } from './errors.js';
 import { callPlanningLlm } from './llm.js';
 import { normalizeLlmResponse } from './normalize.js';
-import {
-  authorizePlanningScope,
-  loadPlanningProfile,
-  resolveApiKey,
-} from './profile.js';
+import { authorizePlanningScope, loadPlanningProfile } from './profile.js';
 import { buildPlanningPrompt, type PromptContext } from './prompt.js';
+import { readSourceFiles, sourceManifest } from './source-files.js';
 import {
   discoverVitestCandidates,
   isEvaluationArtifactPath,
@@ -169,6 +166,7 @@ function planDigest(plan: Omit<RequirementPlan, 'digest'>): string {
     [
       'latch-requirement-plan-v1',
       `snapshot:${plan.input.snapshotDigest}`,
+      `sources:${JSON.stringify(plan.input.sourceFiles ?? [])}`,
       `provider:${plan.llm.provider}`,
       `model:${plan.llm.model}`,
       `requirements:${JSON.stringify(plan.requirements)}`,
@@ -226,6 +224,7 @@ export async function planRequirements(
     discovery.candidates,
     hasSendableDiff,
   );
+  if (profile.allowed.sourceFiles?.length) categories.push('source');
   if (categories.length === 0) {
     throw new RequirementPlanError(
       '許可範囲で送信できる入力がありません。',
@@ -235,22 +234,35 @@ export async function planRequirements(
 
   authorizePlanningScope(profile, {
     provider: profile.connection.provider,
-    endpoint: profile.connection.endpoint,
     project: snapshot.repository.root,
     dataCategories: categories,
   });
-  const apiKey = resolveApiKey(profile, environment.env);
+
+  const sourceFiles = readSourceFiles(
+    snapshot,
+    profile.allowed.sourceFiles ?? [],
+  );
+  if (
+    sourceFiles.length > 0 &&
+    resolveVerificationInputs(options, environment.cwd).digest !==
+      snapshot.digest
+  ) {
+    throw new RequirementPlanError(
+      'ソース入力の読取中に入力が変更されました。',
+      '変更を固定してから再計画してください。',
+    );
+  }
 
   const prompt = buildPlanningPrompt(
-    promptContext.context,
+    { ...promptContext.context, sourceFiles },
     profile.limits.maxInputCharacters,
   );
   const llm = await callPlanningLlm({
     profile,
-    apiKey,
     system: prompt.system,
     user: prompt.user,
-    fetch: environment.fetch,
+    invokeCli: environment.invokeCli,
+    env: environment.env,
   });
   const normalized = normalizeLlmResponse(llm.content, {
     issuePath: snapshot.issue?.path ?? null,
@@ -308,12 +320,12 @@ export async function planRequirements(
         includeUntracked: options.includeUntracked,
       },
       snapshotDigest: snapshot.digest,
+      sourceFiles: sourceManifest(sourceFiles),
     },
     permission: {
       profileId: profile.id,
       profilePath: profile.path,
       provider: profile.connection.provider,
-      endpoint: profile.connection.endpoint,
       project: snapshot.repository.root,
       dataCategories: categories,
     },

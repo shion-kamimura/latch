@@ -1,0 +1,56 @@
+{
+  "mode": "user-reported-wsl2-validation",
+  "source": "Terminal output supplied by the user in this conversation; not executed by the assistant on that device.",
+  "sourceSha256": "2f88b7ffdf4271905d091d6fc170bb949ea41c4796b519874848dabf92499b26",
+  "date": "2026-10-27",
+  "timezone": "Asia/Tokyo",
+  "latchRevision": "8c4b4583c216e4506fb61bbcb31fde530b8ce3ab",
+  "environment": {
+    "distribution": "Ubuntu (user-reported; release not collected)",
+    "kernel": "5.15.167.4-microsoft-standard-WSL2",
+    "node": "26.12.0",
+    "pnpm": "12.14.0",
+    "codex": "0.163.0",
+    "tools": "Linux-side nvm installation (paths omitted)"
+  },
+  "checks": [
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "result": "passed"
+    },
+    {
+      "command": "pnpm test",
+      "unitIntegration": {
+        "passed": 194,
+        "skipped": 1,
+        "durationSeconds": 15.59
+      },
+      "build": "passed",
+      "e2e": {
+        "passed": 12,
+        "durationSeconds": 10.59
+      },
+      "realModelRequests": 0
+    },
+    {
+      "command": "LATCH_OFFICIAL_CLI=<official-codex> pnpm exec vitest run --project integration tests/integration/official-cli-startup.test.ts",
+      "passed": 1,
+      "skipped": 0,
+      "durationMs": 953,
+      "scope": "Real CLI initialization/account/config/thread inspection with a fresh unauthenticated HOME; no model turn."
+    }
+  ],
+  "fixedResponseCases": {
+    "correct": "verified",
+    "buggy": "failed via generated assertion",
+    "ambiguous": "ambiguous condition retained; explicit condition verified",
+    "impossible": "execution-impossible; exit 2",
+    "worktreeIndexHeadUnchanged": true
+  },
+  "limitations": [
+    "No ChatGPT Plus login or real model plan/run evaluated yet.",
+    "The kernel and tool versions combine preceding user-provided diagnostics with the uploaded test output.",
+    "This is evidence from supplied output, not an independent rerun or a guarantee for all WSL installations.",
+    "No raw transcript, personal paths, account identifiers, credentials, or authentication URLs are committed."
+  ]
+}

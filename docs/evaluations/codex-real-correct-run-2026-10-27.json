@@ -1,0 +1,186 @@
+{
+  "mode": "user-reported-real-correct-run",
+  "date": "2026-10-27",
+  "source": "User-uploaded report JSON, reviewed against repository fixture sources. Raw transcript and personal paths are not committed.",
+  "latchRevision": "da0949d88ab7eeb0c9d29f78724cb89c3abf8b55",
+  "revisionEvidence": "User terminal output confirmed this revision and a successful build immediately before rerun.",
+  "sourceSha256": "02687a7e1252bccf71c5fa1517f3ecfa02fa255170ba54ff20c07fb33f8dd748",
+  "reportDigest": "cb72b408b1742e36a734661b571f2b6fb929896476ed89d433279d507d4e8fb1",
+  "planDigest": "e7ddc69672de2d0d4e6077516ef09fc751df20f7b63f4d2576cb5f1510d07ac4",
+  "snapshotDigest": "c9d81c3846a7af53b4174580d57c8e3bb55143e925580d6debd75f8b67229d83",
+  "reportedVerification": "completed",
+  "generation": {
+    "provider": "codex-cli",
+    "model": "gpt-6.1-sol",
+    "requestCount": 2,
+    "maxRequests": null,
+    "repairAttempts": 1,
+    "maxRepairAttempts": 1,
+    "requestedConditions": 11,
+    "generatedFiles": 11
+  },
+  "conditionStates": {
+    "verified": 4,
+    "failed": 7,
+    "unverified": 1,
+    "ambiguous": 3
+  },
+  "existingTests": {
+    "passed": 5
+  },
+  "generatedTests": {
+    "passed": 4,
+    "assertion-failed": 7
+  },
+  "evidenceCount": 16,
+  "uniqueEvidenceIds": 16,
+  "conditionReferencesResolve": true,
+  "reportedCleanup": "removed",
+  "falsePositiveAssessment": {
+    "count": 7,
+    "httpDoubleMismatch": {
+      "conditions": [
+        "cond-30a6b348c2",
+        "cond-d9a0a1685e",
+        "cond-8e9cdff768",
+        "cond-c23a96f800",
+        "cond-0b3f09379a",
+        "cond-0ff190518f"
+      ],
+      "cause": "Generated request doubles implement on(data/end), but RequestLike/readJson consume Symbol.asyncIterator. Consequently requests reach invalid JSON rather than the intended checks."
+    },
+    "serverFactoryMismatch": {
+      "conditions": ["cond-66ceea8120"],
+      "cause": "The generated test expects import of server.ts to call createServer. The source exports createApp/listen factories; import alone does not construct the server."
+    },
+    "inputCause": "Generation receives planned conditions, diff, and test candidate names/paths, but not the selected implementation interfaces/full source. The model guessed unsupported calling conventions.",
+    "limitations": [
+      "The local check below compares handwritten request doubles; it does not replay every uploaded generated test.",
+      "A runtime Vitest pass alone would not prove structural TypeScript compatibility."
+    ]
+  },
+  "localReproduction": {
+    "mode": "local-fixture-interface-reproduction",
+    "modelRequests": 0,
+    "results": [
+      {
+        "name": "quantity",
+        "eventStyle": {
+          "status": 400,
+          "body": {
+            "error": "invalid JSON"
+          }
+        },
+        "iteratorStyle": {
+          "status": 400,
+          "body": {
+            "error": "invalid quantity"
+          }
+        },
+        "expectedMatched": true
+      },
+      {
+        "name": "sku",
+        "eventStyle": {
+          "status": 400,
+          "body": {
+            "error": "invalid JSON"
+          }
+        },
+        "iteratorStyle": {
+          "status": 400,
+          "body": {
+            "error": "invalid sku"
+          }
+        },
+        "expectedMatched": true
+      },
+      {
+        "name": "price",
+        "eventStyle": {
+          "status": 400,
+          "body": {
+            "error": "invalid JSON"
+          }
+        },
+        "iteratorStyle": {
+          "status": 400,
+          "body": {
+            "error": "invalid unit price"
+          }
+        },
+        "expectedMatched": true
+      },
+      {
+        "name": "lines",
+        "eventStyle": {
+          "status": 400,
+          "body": {
+            "error": "invalid JSON"
+          }
+        },
+        "iteratorStyle": {
+          "status": 400,
+          "body": {
+            "error": "lines must be a non-empty array"
+          }
+        },
+        "expectedMatched": true
+      },
+      {
+        "name": "coupon",
+        "eventStyle": {
+          "status": 400,
+          "body": {
+            "error": "invalid JSON"
+          }
+        },
+        "iteratorStyle": {
+          "status": 400,
+          "body": {
+            "error": "unknown coupon"
+          }
+        },
+        "expectedMatched": true
+      },
+      {
+        "name": "valid request",
+        "eventStyle": {
+          "status": 400,
+          "body": {
+            "error": "invalid JSON"
+          }
+        },
+        "iteratorStyle": {
+          "status": 200,
+          "body": {
+            "subtotalCents": 123,
+            "totalCents": 123,
+            "appliedCoupon": null
+          }
+        },
+        "expectedMatched": true
+      }
+    ],
+    "serverFactory": {
+      "explicitCreateAppRequired": true,
+      "requestListenersAfterCreateApp": 1,
+      "listening": false
+    },
+    "note": "Handwritten request-object comparison on the repository correct fixture; not a replay of every uploaded generated assertion or a model rerun."
+  },
+  "usage": {
+    "inferenceExecStartsThisRun": 2,
+    "modelTurns": null,
+    "tokens": null,
+    "cost": null,
+    "note": "Two exec starts in this run include one generation and one repair. Previous failed runs and plan calls are not included; unknown usage is not zero."
+  },
+  "postRunWorktreeFingerprint": null,
+  "nextWork": [
+    "Improve permitted generation input so actual call signatures/types and factory behavior are known, without changing expected results to match implementation.",
+    "Keep false positives and ambiguous/untested conditions visible.",
+    "Re-evaluate the correct case and perform the buggy comparison; do not treat completed process execution as quality acceptance."
+  ],
+  "completion": "Official login, model generation, isolation, and report output completed on the user WSL device. Generation quality failed on the correct case; Issue #81 remains incomplete."
+}

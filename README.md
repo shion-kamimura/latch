@@ -4,6 +4,8 @@ Latchは、AIが生成したコードをGitHub IssueやPRの要件と照合し�
 
 現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）、`latch plan` による要件抽出・既存Vitestテスト候補と不足シナリオの計画、`latch run` によるVitestテスト生成・隔離実行・実行証拠の収集と、要件→テスト→証拠を対応づけたテキスト／JSONレポートを提供しています。Markdownファイル出力・CI連携・GitHub PR投稿はまだ実装していません。
 
+製品は既存の公式ツール・標準機能を優先し、自前実装と資格情報管理を減らす方針です。責務の分担は [製品方針](docs/product-vision.md#自前実装を最小化する原則) を参照してください。[#81の公式CLI接続](docs/official-cli.md) はCodex CLI 0.163.0に対応します。対応環境と [#81の受け入れ条件・証拠](docs/issue-81-acceptance.md) を参照してください。
+
 ## 使用技術
 
 - Node.js 26 / TypeScript（strictモード、ES Modules）
@@ -76,7 +78,7 @@ pnpm build
 pnpm exec vitest run --project e2e tests/e2e/evaluation.test.ts
 ```
 
-Node.js 26、リポジトリの開発依存、loopback通信が必要です。実APIの品質評価は未実施で、固定応答の合格から抽出・生成品質やAPI全体の正しさを保証しません。実API評価に必要なBYOK/profile、要求数・費用・時間の上限、誤検出・見逃し・未検証の記録方法は上記手順を参照してください。
+Node.js 26、リポジトリの開発依存が必要です。固定応答テストに公式CLIやログインは不要です。固定応答の合格から抽出・生成品質やAPI全体の正しさを保証しません。旧BYOK方式での実API評価は取りやめ、公式CLIでの実利用評価を #81 へ引き継ぎます。採用条件、契約と利用上限、誤検出・見逃し・未検証の記録方法は上記手順を参照してください。
 
 ## ビルドとCLIの実行
 
@@ -105,11 +107,13 @@ node dist/cli.mjs plan --base origin/main --issue-file fixtures/order-api/issue.
   --profile ~/.config/latch/llm-profile.json --json
 ```
 
-`plan` は `verify` と同じ入力スナップショットから、要件・条件、出典（Issue明示または差分推定）、既存のVitestテスト候補、不足シナリオを計画します。期待値を確定できない条件は「要件不明確」として残し、テスト候補と実行証拠を区別します。対象コード・設定・テストは実行せず、#22の評価専用テスト・正解データはLLM入力から除外します。
+`plan` は `verify` と同じ入力スナップショットから、要件・条件、出典（Issue明示または差分推定）、既存のVitestテスト候補、不足シナリオを計画します。期待値を確定できない条件は「要件不明確」として残し、テスト候補と実行証拠を区別します。対象コード・設定・テストは実行せず、#22の評価専用テスト・正解データはLLM入力から除外します。 呼び出し方をAIに伝えるため、profileで個別に許可したJS/TSソース全文を追加できます。許可方法・内容の固定・実機再評価手順は [ソース入力](docs/source-inputs.md) を参照してください。
 
-送信にはワークツリー外の利用者管理の許可profileと、環境変数（既定は `LATCH_API_KEY`）のBYOKキーが必要です。許可profileはprovider・endpoint・project・データ区分を検証し、同一範囲は追加確認なしに再利用します。拒否・取り消し・範囲拡大・非対話の許可不足では送信せず終了コード2を返します。APIキーはprofile・ログ・レポートへ保存しません。認証失敗・タイムアウト・利用上限・不正なLLM応答は上限内で停止します。
+送信にはワークツリー外の利用者管理のversion 2許可profileと、公式CLIでのログインが必要です。初回はCodex CLI 0.163.0・Linux（WSL 2上のUbuntuを含む）・ChatGPT Plus/Proアカウント・CLI設定・管理者設定のない環境に限定します。専用CODEX_HOMEを使う手順は [公式CLI接続](docs/official-cli.md) を参照してください。`codex login` は利用者が公式CLIで行ってください。Latchはキーやトークンを要求・読取・保存・コピーせず、ログインと通信を公式CLIへ委譲します。profileはprovider・project・データ区分を検証し、拒否・取り消し・範囲拡大・対応条件の不一致では推論前に停止します。旧version 1、endpoint、apiKeyEnvは移行案内付きで拒否し、API接続へ戻りません。設定例は [要件計画](docs/requirement-planning.md#許可profile)、公式情報と権限制限は [公式CLI接続](docs/official-cli.md) を参照してください。
 
-自動テストは固定したLLM応答を使い、実APIでの抽出品質は評価していません。テスト生成・実行・証拠収集は `latch run` で実装し、隔離方式・安全境界・依存準備・通信制御・状態の区別は [生成テストの隔離実行と証拠収集](docs/isolated-execution.md) を参照してください。利用方法・許可profile・データ契約・確認と再計画の手順は [要件抽出と検証シナリオ計画](docs/requirement-planning.md) を参照してください。
+WSL 2での準備、コードレビューの操作、外部送信・実行の制限、結果の読み方は [初めてのコードレビュー](docs/review-walkthrough.md) を参照してください。WSL 2上の自動テスト・公式CLI起動検査は利用者提供ログで成功を確認しました。実Plusで同じbase・Issueのcorrect/buggyを評価し、correctの生成53件成功と、buggyの既存テストが通る割引不具合の検出を確認しました。[実利用記録](docs/evaluations/codex-real-source-inputs-2026-10-28.json)の範囲での結果であり、曖昧な条件と計画・生成の整合性課題は残ります。時間・要求回数・入出力量・テスト実行量は既定でLatch側の上限なしとし、必要な場合だけprofileで指定します。自動修復は条件ごとに既定1回（変更可能）です。認証情報・対象ワークツリーの保護は維持します。
+
+自動テストは固定したLLM応答を使い、実ログインでの抽出品質は評価していません。テスト生成・実行・証拠収集は `latch run` で実装し、隔離方式・安全境界・依存準備・通信制御・状態の区別は [生成テストの隔離実行と証拠収集](docs/isolated-execution.md) を参照してください。利用方法・許可profile・データ契約・確認と再計画の手順は [要件抽出と検証シナリオ計画](docs/requirement-planning.md) を参照してください。
 
 ### 不足テストを生成して隔離実行する
 

@@ -1,3 +1,4 @@
+import { readSourceManifest } from '../plan/source-files.js';
 import { RequirementPlanError } from '../plan/errors.js';
 import { conditionStates, RUN_REPORT_SCHEMA_VERSION } from './report.js';
 import type { ConditionState, EvidenceStatus, RunReport } from './types.js';
@@ -70,6 +71,11 @@ function checkInput(value: unknown, errors: string[]): void {
   if (!isRecord(value)) {
     errors.push('input がオブジェクトではありません。');
     return;
+  }
+  try {
+    readSourceManifest(value.sourceFiles);
+  } catch {
+    errors.push('input.sourceFiles のパス・digestが不正です。');
   }
   for (const field of [
     'repository',
@@ -425,7 +431,7 @@ export function assertValidRunReport(
   if (errors.length > 0) {
     throw new RequirementPlanError(
       `検証レポートの形式が不正です: ${errors[0]}`,
-      '書きかけのレポートを出力せずに停止しました。同じ入力で再実行してください。',
+      '書きかけのレポートを出力せずに停止しました。モデル要求を繰り返さず、Latchのレポート生成処理を確認してください。',
       2,
     );
   }

@@ -1,0 +1,208 @@
+{
+  "mode": "user-reported-real-source-input-evaluation",
+  "reviewedDate": "2026-10-28",
+  "reviewedTimezone": "Asia/Tokyo",
+  "executionTimestamp": null,
+  "latchRevision": null,
+  "revisionEvidence": "Source-input feature is present in the uploaded artifacts. No git revision output was supplied for these executions.",
+  "source": "User-uploaded correct report, buggy plan, final buggy report and terminal outputs; not executions performed by the assistant. Raw responses and personal paths are not committed.",
+  "correct": {
+    "reportFileSha256": "04061f0ce30ace43252514921c2c292fe6ac975881b14b4d2d49f9b4ae340fd0",
+    "reportDigest": "6fdf6c74f79b0dd63f85e02a1d2dfd131ca342c2a52e10c68dae9fecaee9300b",
+    "planDigest": "07abfd370277e6b599c5ad39cc493b39133baa7a66079e76efc7f156cccdc30d",
+    "snapshotDigest": "c9d81c3846a7af53b4174580d57c8e3bb55143e925580d6debd75f8b67229d83",
+    "sourceFiles": [
+      {
+        "path": "src/api.ts",
+        "digest": "9bb337489511549ea95e8a96563918469faf99a23050a1c4a7b526c1ff29617e"
+      },
+      {
+        "path": "src/server.ts",
+        "digest": "4a9510ee6e438c41ee86d37a76aa728decd3981a16c52921546fe2880c87bde6"
+      }
+    ],
+    "reportedExitCode": 0,
+    "reportedVerification": "completed",
+    "conditionStates": {
+      "verified": 14,
+      "ambiguous": 3
+    },
+    "existingTests": {
+      "passed": 5
+    },
+    "generatedTests": {
+      "passed": 53
+    },
+    "generation": {
+      "provider": "codex-cli",
+      "model": "gpt-6.1-sol",
+      "requestCount": 1,
+      "maxRequests": null,
+      "repairAttempts": 0,
+      "maxRepairAttempts": 1,
+      "requestedConditions": 14,
+      "generatedFiles": 14
+    },
+    "evidenceCount": 58,
+    "uniqueEvidenceIds": 58,
+    "conditionReferencesResolve": true,
+    "reportedCleanup": "removed",
+    "assessment": "No assertion failures in this execution. Generated requests use Symbol.asyncIterator and server wiring explicitly invokes createApp. Replanning changed the condition set, so this is not a paired replay of the previous seven false positives.",
+    "limitations": [
+      "Three conditions remain ambiguous: fractional discount rounding, unsupported method/path, malformed JSON.",
+      "Some coupon tests use fractional discount expectations while the dedicated rounding condition is ambiguous; planning/generation consistency remains unresolved.",
+      "Vitest runtime success does not prove the TypeScript satisfies checks were typechecked.",
+      "Post-run worktree fingerprint and actual socket traffic were not independently verified."
+    ]
+  },
+  "buggy": {
+    "planFileSha256": "31eb86ac3f907ad7d84b508422c41d9b147ab09760f65f13f5e2fce8a07865d0",
+    "planDigest": "d877e0fc55f4aed60ec110bcdce1ea5aa58de21706746e8d6f11e583f3429779",
+    "snapshotDigest": "0b890dc0f01d00cc74421705b4f768449bb2066af7fc5af913cced1056f694d5",
+    "sourceFiles": [
+      {
+        "path": "src/api.ts",
+        "digest": "ddc4c198a31b73a4fe4f6285485cd95a5cd2b0fbe350f99839a27c8bab26b82e"
+      },
+      {
+        "path": "src/server.ts",
+        "digest": "4a9510ee6e438c41ee86d37a76aa728decd3981a16c52921546fe2880c87bde6"
+      }
+    ],
+    "requirements": 9,
+    "conditions": 17,
+    "requestedConditions": 13,
+    "planning": {
+      "provider": "codex-cli",
+      "model": "gpt-6.1-sol",
+      "requestCount": 1,
+      "maxRequests": null,
+      "timeoutMs": null
+    },
+    "reportedRunExitCode": 2,
+    "reportedReportBytes": 0,
+    "failure": "Generated-test response did not satisfy the Latch data contract.",
+    "failureStage": null,
+    "specificViolation": null,
+    "runInferenceStarts": null,
+    "testResults": null,
+    "assessment": "No bug detection or missed-bug verdict is possible from the empty report. The same generic validation error can arise in initial generation or repair. The raw response was not provided or retained, so the violation cannot be recovered from this log."
+  },
+  "usage": {
+    "tokens": null,
+    "cost": null,
+    "cliInternalTurns": null,
+    "note": "Successful correct and buggy runs each record one Latch-visible inference start and no repair. The first failed buggy run count is unknown; this is not a total across attempts. Tokens, cost and internal turns are not exposed in the reports."
+  },
+  "remaining": [
+    "Human review and merge decision for PR #82; this record does not close the issue.",
+    "Follow-up quality work: align ambiguous rounding requirements and concrete generated expectations; improve no-coupon coverage.",
+    "Generalization, repeated-trial stability, real hostile model-tool attempts and independent real-run worktree fingerprints are outside the demonstrated evidence."
+  ],
+  "assistantRealModelRequests": 0,
+  "buggyFollowup": {
+    "source": "User-provided terminal output confirms fast-forward to 06da8e9, successful build, and run exit 2.",
+    "latchRevision": "06da8e93b81bf4d33bd5a72970ef3a472b7cadc8",
+    "reportedRunExitCode": 2,
+    "failureStage": "initial-generation",
+    "field": "tests[0].code",
+    "specificViolation": "The Latch text matcher did not recognize a direct test(...) or it(...) call.",
+    "rawCodeAvailable": false,
+    "validityOfGeneratedCode": null,
+    "assessment": "The guard is known to reject valid test.each/test.for/aliased registration. The log does not establish which syntax the actual response used or whether it was valid. Delegate test collection to Vitest rather than adding a custom JavaScript parser.",
+    "testResults": null,
+    "bugDetectionVerdict": null
+  },
+  "buggySuccessfulRun": {
+    "source": "User-uploaded final buggy report and terminal output showing successful build and exit 0.",
+    "latchRevision": null,
+    "expectedRevision": "760bcb88d213c55c830892df1c9d3b4a40ff0a8e",
+    "revisionEvidence": "Terminal output says Already up to date and build output is consistent with the suggested revision; no git rev-parse output independently confirms the runtime revision.",
+    "reportFileSha256": "ffbb41a9a74be683e76bd2318d7e7cb09b2bd5247dbdab7d4e173ab4bbb0cfd2",
+    "reportDigest": "fd77dc52cbcb392fbed6a9982c9288fc4ab6b34b863aa1a68538727f114ca2c8",
+    "planDigest": "d877e0fc55f4aed60ec110bcdce1ea5aa58de21706746e8d6f11e583f3429779",
+    "snapshotDigest": "0b890dc0f01d00cc74421705b4f768449bb2066af7fc5af913cced1056f694d5",
+    "sourceFiles": [
+      {
+        "path": "src/api.ts",
+        "digest": "ddc4c198a31b73a4fe4f6285485cd95a5cd2b0fbe350f99839a27c8bab26b82e"
+      },
+      {
+        "path": "src/server.ts",
+        "digest": "4a9510ee6e438c41ee86d37a76aa728decd3981a16c52921546fe2880c87bde6"
+      }
+    ],
+    "reportedRunExitCode": 0,
+    "reportedVerification": "completed",
+    "conditionStates": {
+      "verified": 12,
+      "unverified": 1,
+      "failed": 1,
+      "ambiguous": 3
+    },
+    "existingTests": {
+      "passed": 5
+    },
+    "generatedTests": {
+      "passed": 33,
+      "assertion-failed": 2
+    },
+    "generation": {
+      "provider": "codex-cli",
+      "model": "gpt-6.1-sol",
+      "requestCount": 1,
+      "maxRequests": null,
+      "repairAttempts": 0,
+      "maxRepairAttempts": 1,
+      "requestedConditions": 13,
+      "generatedFiles": 13
+    },
+    "evidenceCount": 40,
+    "uniqueEvidenceIds": 40,
+    "conditionReferencesResolve": true,
+    "reportedCleanup": "removed",
+    "failedConditionId": "cond-3522fbc53a",
+    "failedGeneratedFile": ".latch/generated/generated-10.test.ts",
+    "registration": "test.each",
+    "failures": [
+      {
+        "coupon": "SAVE10",
+        "subtotalCents": 1007,
+        "expectedTotalCents": 907,
+        "actualTotalCents": 906
+      },
+      {
+        "coupon": "SAVE20",
+        "subtotalCents": 1003,
+        "expectedTotalCents": 803,
+        "actualTotalCents": 802
+      }
+    ],
+    "assessment": "Both failed assertions match the known fixture mutation from Math.floor to Math.round. Existing tests pass. This successful execution detects that seeded defect, not arbitrary bugs.",
+    "unverifiedCondition": "cond-1cfc2e7285",
+    "unverifiedReason": "Only existing test evidence is mapped to the no-coupon condition; Latch does not treat it as sufficient generated verification."
+  },
+  "comparison": {
+    "sameBaseCommit": true,
+    "baseCommit": "477d65e17198b1b98af780ac8bb91290226652d5",
+    "sameMergeBase": true,
+    "sameIssueDigest": true,
+    "issueDigest": "501eca656d2b129d08169b6a69bde2e870a8b35fe527f0be6207833cdd6c720b",
+    "sameServerSourceDigest": true,
+    "sameModelSetting": true,
+    "correctAssertionFailures": 0,
+    "buggyAssertionFailures": 2,
+    "trialScope": "One completed report per candidate; earlier failures are preserved separately. Plans and generated tests differ between candidates, so this is not a paired identical-test replay or a stability estimate.",
+    "ambiguousConditions": "Both reports retain rounding-unit, unsupported-method/path and malformed-JSON ambiguity. Fractional expectations in coupon tests despite rounding ambiguity remain a planning/generation consistency limitation.",
+    "safetyEvidence": "Input exclusion, worktree/index/HEAD invariance and credential non-inheritance are validated by fixed-response automated tests; independent before/after fingerprints from these user model executions were not supplied. Cleanup is reported by both artifacts."
+  },
+  "measurementLimits": {
+    "endToEndElapsedMs": null,
+    "elapsedReason": "No complete plan/run wall-clock start/end timestamps were supplied. Per-test/suite durations in reports do not establish the end-to-end model duration.",
+    "returnedModelIdentifier": null,
+    "modelReason": "Reports retain the configured model name, not an independently returned backend identifier.",
+    "tokensCostReason": "The current CLI adapter/report does not expose token usage or Plus cost accounting. Unknown is not zero.",
+    "executionEnvironment": "Earlier user logs identify WSL 2 Ubuntu, Node 26.12.0, pnpm 12.14.0 and Codex 0.163.0; versions were not independently queried again for the final report.",
+    "limits": "Successful run maxRequests is null; source profiles use opt-in resource ceilings. CLI subscription and platform limits still apply."
+  }
+}

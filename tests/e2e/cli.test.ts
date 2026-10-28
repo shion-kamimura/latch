@@ -1,6 +1,6 @@
+import { createFakeCli } from '../helpers/official-cli.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,9 @@ import {
   type TestRepository,
 } from '../helpers/repository.js';
 
+const unmanagedHost = fileURLToPath(
+  new URL('../helpers/unmanaged-host.mjs', import.meta.url),
+);
 const cliPath = fileURLToPath(new URL('../../dist/cli.mjs', import.meta.url));
 const packageJson = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
@@ -49,7 +52,6 @@ test.each(['--version', '-v'])(
 
 const repositories: TestRepository[] = [];
 const directories: { cleanup(): void }[] = [];
-const servers: Server[] = [];
 
 const fixtureRoot = fileURLToPath(
   new URL('../../fixtures/order-api', import.meta.url),
@@ -226,11 +228,15 @@ function runBuiltAsync(
   error?: Error;
 }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [cliPath, ...args], {
-      cwd: root,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      ['--import', unmanagedHost, cliPath, ...args],
+      {
+        cwd: root,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
@@ -260,37 +266,23 @@ const SLOW_GENERATED_CODE = [
   '',
 ].join('\n');
 
-async function llmServer(code = GENERATED_CODE): Promise<string> {
-  const server = createServer((_request, response) => {
-    response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(
-      JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                tests: [
-                  {
-                    conditionId: 'cond-discount-floor',
-                    name: 'floors fractional discount cents',
-                    rationale: '99 * 10% is 9.9 cents, floored to 9.',
-                    code,
-                  },
-                ],
-              }),
-            },
-          },
-        ],
-      }),
-    );
+function fixedCli(code = GENERATED_CODE) {
+  const directory = createProfileDirectory();
+  directories.push(directory);
+  const cli = createFakeCli(directory.root);
+  cli.configure({
+    response: {
+      tests: [
+        {
+          conditionId: 'cond-discount-floor',
+          name: 'floors fractional discount cents',
+          rationale: 'fixed output',
+          code,
+        },
+      ],
+    },
   });
-  servers.push(server);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  if (address === null || typeof address === 'string') {
-    throw new Error('failed to start the local LLM server');
-  }
-  return `http://127.0.0.1:${address.port}/v1`;
+  return cli;
 }
 
 function repository(): TestRepository {
@@ -303,17 +295,20 @@ function repository(): TestRepository {
 }
 
 function runBuilt(args: string[], root: string) {
-  return spawnSync(process.execPath, [cliPath, ...args], {
-    cwd: root,
-    encoding: 'utf8',
-    timeout: 10_000,
-  });
+  return spawnSync(
+    process.execPath,
+    ['--import', unmanagedHost, cliPath, ...args],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 10_000,
+    },
+  );
 }
 
 afterEach(() => {
   for (const repo of repositories.splice(0)) repo.cleanup();
   for (const directory of directories.splice(0)) directory.cleanup();
-  for (const server of servers.splice(0)) server.close();
 });
 
 test('built CLI resolves inputs as JSON without claiming verification', () => {
@@ -413,22 +408,20 @@ test('built CLI returns exit code 1 outside a repository', () => {
 test('built CLI run prints a schema-valid verification report as JSON', async () => {
   const repo = orderRepository();
   const planPath = runPlanFile(repo);
-  const endpoint = await llmServer();
+  const mockCli = fixedCli();
   const profileDirectory = createProfileDirectory();
   directories.push(profileDirectory);
   const profile = profileDirectory.write(
     'profile.json',
-    profileContent(repo.root, {
-      allowedEndpoint: endpoint,
-      connectionEndpoint: endpoint,
-    }),
+    profileContent(repo.root, {}),
   );
 
   const result = await runBuiltAsync(
     ['run', '--plan', planPath, '--profile', profile, '--json'],
     repo.root,
     {
-      PATH: process.env.PATH ?? '',
+      PATH: mockCli.env.PATH ?? '',
+      HOME: mockCli.env.HOME,
       LANG: process.env.LANG ?? 'C',
       LATCH_API_KEY: 'secret-value',
     },
@@ -482,14 +475,12 @@ test('built CLI run prints a schema-valid verification report as JSON', async ()
 test('built CLI run prints a partial report and exits 2 when execution is impossible', async () => {
   const repo = orderRepository();
   const planPath = runPlanFile(repo);
-  const endpoint = await llmServer(SLOW_GENERATED_CODE);
+  const mockCli = fixedCli(SLOW_GENERATED_CODE);
   const profileDirectory = createProfileDirectory();
   directories.push(profileDirectory);
   const profile = profileDirectory.write(
     'profile.json',
     profileContent(repo.root, {
-      allowedEndpoint: endpoint,
-      connectionEndpoint: endpoint,
       extra: {
         execution: {
           dependencies: { mode: 'runner', registry: null },
@@ -504,7 +495,8 @@ test('built CLI run prints a partial report and exits 2 when execution is imposs
     ['run', '--plan', planPath, '--profile', profile, '--json'],
     repo.root,
     {
-      PATH: process.env.PATH ?? '',
+      PATH: mockCli.env.PATH ?? '',
+      HOME: mockCli.env.HOME,
       LANG: process.env.LANG ?? 'C',
       LATCH_API_KEY: 'secret-value',
     },

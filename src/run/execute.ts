@@ -77,12 +77,13 @@ const ISOLATION_SETUP = [
 
 function truncate(
   text: string,
-  maximum: number,
+  maximum: number | null,
 ): {
   text: string;
   truncated: boolean;
 } {
-  if (text.length <= maximum) return { text, truncated: false };
+  if (maximum === null || text.length <= maximum)
+    return { text, truncated: false };
   return {
     text: `${text.slice(0, maximum)}\n...[truncated]`,
     truncated: true,
@@ -173,7 +174,9 @@ function evidenceFor(
 ): Evidence {
   const bounded = truncate(log, options.settings.limits.maxOutputBytes);
   return {
-    id: `evidence-${options.kind}-${String(index + 1).padStart(3, '0')}`,
+    // The counter is local to a suite. Include its unique execution name so
+    // separate generated files and repair attempts cannot share report IDs.
+    id: `evidence-${options.kind}-${options.name}-${String(index + 1).padStart(3, '0')}`,
     kind: options.kind,
     conditionIds,
     testName,
@@ -204,11 +207,13 @@ export function executeSuite(options: ExecuteSuiteOptions): SuiteResult {
   writeFileSync(setupPath, ISOLATION_SETUP);
   writeFileSync(
     configPath,
-    `export default {\n  test: {\n    environment: 'node',\n    include: ${JSON.stringify(include)},\n    setupFiles: [${JSON.stringify(setupPath)}],\n    fileParallelism: false,\n    pool: 'threads',\n  },\n};\n`,
+    `export default {\n  test: {\n    environment: 'node',\n    testTimeout: ${settings.limits.timeoutMs ?? 0},\n    hookTimeout: ${settings.limits.timeoutMs ?? 0},\n    include: ${JSON.stringify(include)},\n    setupFiles: [${JSON.stringify(setupPath)}],\n    fileParallelism: false,\n    pool: 'threads',\n  },\n};\n`,
   );
 
   const args = [
-    `--max-old-space-size=${settings.limits.maxMemoryMb}`,
+    ...(settings.limits.maxMemoryMb === null
+      ? []
+      : [`--max-old-space-size=${settings.limits.maxMemoryMb}`]),
     ...permissionFlags(workspace),
     workspace.runnerPath,
     'run',
@@ -227,8 +232,11 @@ export function executeSuite(options: ExecuteSuiteOptions): SuiteResult {
     cwd: workspace.workDir,
     env: sanitizedEnvironment(workspace.root),
     encoding: 'utf8',
-    timeout: settings.limits.timeoutMs,
-    maxBuffer: Math.max(settings.limits.maxOutputBytes * 2, 1024 * 1024),
+    timeout: settings.limits.timeoutMs ?? undefined,
+    maxBuffer:
+      settings.limits.maxOutputBytes === null
+        ? Infinity
+        : Math.max(settings.limits.maxOutputBytes * 2, 1024 * 1024),
     windowsHide: true,
   });
   const durationMs = Date.now() - started;
