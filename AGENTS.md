@@ -13,7 +13,7 @@ LatchはAI生成コードを要件・テスト・証拠で検証するCLIです�
 | OpenCode運用    | [運用手順](docs/opencode.md) と [連携固有の指示](.github/opencode/instructions.md)                   |
 | ハーネス改善    | [設計](docs/harness/design.md)、[評価](docs/harness/evaluation.md)、[進行計画](docs/harness/plan.md) |
 
-無関係な資料一式や履歴を毎回読む必要はありません。旧資料は現行の仕様・保証として扱わないでください。
+[資料索引](docs/README.md) は基本手順・製品資料・証拠と履歴を分け、各資料の必要な場面と保持理由を示します。無関係な資料一式や履歴を毎回読む必要はありません。旧資料は現行の仕様・保証として扱わないでください。
 
 ## 必須ルール
 
