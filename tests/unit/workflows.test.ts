@@ -68,17 +68,44 @@ describe('GitHub Actions runtime and runner pinning', () => {
 });
 
 describe('CI order and retired automation', () => {
-  test('Unit and integration tests build before CLI E2E and the build step remains after tests', () => {
-    const packageJson = JSON.parse(read('package.json')) as {
-      scripts: { test: string };
+  test('CI runs independent checks without cancelling siblings on failure', () => {
+    expect(ci).toContain('fail-fast: false');
+    expect(ci).not.toMatch(/^\s+needs:/m);
+    const expected = [
+      ['Lint', 'pnpm lint'],
+      ['Typecheck', 'pnpm typecheck'],
+      ['Format', 'pnpm format:check'],
+      ['Unit tests', 'pnpm test:unit'],
+      ['Integration tests', 'pnpm test:integration'],
+      ['Build', 'pnpm build'],
+      ['CLI E2E', 'pnpm test:e2e'],
+    ];
+    for (const [name, command] of expected) {
+      expect(ci).toContain(`- name: ${name}\n            command: ${command}`);
+    }
+    expect(ci).toContain('name: ${{ matrix.name }}');
+    expect(ci).toContain('run: ${{ matrix.command }}');
+    expect(ci).not.toContain('run: pnpm test\n');
+  });
+
+  test('E2E builds the CLI first and local test coverage is preserved', () => {
+    const { scripts } = JSON.parse(read('package.json')) as {
+      scripts: Record<string, string>;
     };
-    expect(packageJson.scripts.test).toBe(
+    expect(scripts['test:unit']).toBe('vitest run --project unit');
+    expect(scripts['test:integration']).toBe(
+      'vitest run --project integration',
+    );
+    expect(scripts['test:e2e']).toBe('vitest run --project e2e');
+    expect(scripts.test).toBe(
       'vitest run --project unit --project integration && pnpm build && vitest run --project e2e',
     );
-    const testStep = ci.indexOf('run: pnpm test');
-    const buildStep = ci.indexOf('run: pnpm build');
-    expect(testStep).toBeGreaterThan(-1);
-    expect(buildStep).toBeGreaterThan(testStep);
+    expect(ci).toContain(
+      "if: matrix.name == 'CLI E2E'\n        run: pnpm build",
+    );
+    expect(ci.indexOf('run: pnpm build')).toBeLessThan(
+      ci.indexOf('run: ${{ matrix.command }}'),
+    );
   });
 
   test('retired workflows and the Python automation base are not restored', () => {
