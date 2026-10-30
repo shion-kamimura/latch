@@ -1,6 +1,6 @@
-# 公式CLI接続（#81）
+# 公式CLI接続
 
-状態: Codex CLIへの接続置換・固定応答回帰を実装。実Plusで同じbase・Issueのcorrect/buggy全工程を評価し、correctの生成53件成功とbuggyの割引不具合検出を確認。[#81の受け入れ条件・証拠](issue-81-acceptance.md)を整理し、PRのレビュー・マージ判断待ち。一般的な生成品質の保証ではない。2026-10-28（JST）確認。
+状態: Codex CLIへの接続置換・固定応答回帰を実装。実Plusで同じbase・Issueのcorrect/buggy全工程を評価し、correctの生成53件成功とbuggyの割引不具合検出を確認。[検証範囲と残る課題](order-api-evaluation.md#完了した実correctbuggy比較と検証範囲)を参照。一般的な生成品質の保証ではない。2026-10-28（JST）確認。
 
 ## ChatGPT Plusでの利用とセットアップ
 
@@ -21,6 +21,8 @@ codex login
 
 ## 一次情報と選定
 
+採用理由と代替案は [ADR 0004](adr/0004-official-model-cli.md) に記録します。以下は対応条件の根拠となる一次情報です。
+
 [認証](https://developers.openai.com/codex/auth)、[料金](https://developers.openai.com/codex/pricing)、[非対話実行](https://developers.openai.com/codex/noninteractive)、[CLI参照](https://developers.openai.com/codex/cli/reference)、[設定参照](https://developers.openai.com/codex/config-reference)、[公開app-serverプロトコル](https://developers.openai.com/codex/app-server)を参照する。
 
 2026-10-27、[現行モデル案内](https://learn.chatgpt.com/docs/models)と[Plusの提供内容](https://learn.chatgpt.com/docs/pricing)を再確認した。gpt-5.4/gpt-5.4-miniはChatGPTログインのCodexでは2026-08-31に提供終了している。APIキー認証側の提供とは区別する。Plusの現行案内にあるgpt-6.1-solへprofileの例を更新した。公式CLIの版と、サーバー側モデルの提供期間は別に確認する。アカウント/クライアントの展開状況により異なり得るため、例のモデルがすべてのアカウントで利用できるとは保証せず、自動切替もしない。
@@ -34,8 +36,6 @@ codex login
 - [スキル読込](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/core/src/session/session.rs): `skip_host_skill_discovery`によるホスト側スキル探索の停止。開発中の設定なので版を固定し、別版を自動で受け付けない。
 - [公開account/read](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/app-server-protocol/schema/json/v2/GetAccountResponse.json): アカウント種別・planTypeを返し、tokenやキーを返さない。`refreshToken:false`で状態を読む。Latchはログイン・ログアウト・token更新の要求を送らない。
 - [login status](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/cli/src/login.rs)はAPIキー認証時にキーの識別用表示を出すため、Latchの判定には使わない。[forced_login_method](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/login/src/auth/manager.rs)は不一致時にlogoutする経路があるため、既存資格情報を削除しない本接続では設定しない。公開account/readでAPI認証を拒否してから推論する。
-
-利用者がChatGPT Plusだけを持つため、先に試作したClaude Code接続をCodexへ置換した。両方の実装・自動切替は保持しない。CLIの一般的な機能数ではなく、利用者の契約と必要な権限制御に合わせた選定である。
 
 ## 対応条件と起動前の拒否
 
@@ -106,7 +106,7 @@ LATCH_OFFICIAL_CLI=/absolute/path/to/codex \
 
 ### 旧評価と修正の経緯
 
-以下は当時の失敗・未達の履歴。現在の到達点は [受け入れ条件の対応](issue-81-acceptance.md) を参照する。
+以下は当時の失敗・未達の履歴。現在の到達点は [検証範囲と残る課題](order-api-evaluation.md#完了した実correctbuggy比較と検証範囲) を参照する。
 
 Plusログインでのplan成功とrun・レポート出力は利用者提供JSONで確認したが、正しい候補で7条件の誤検出があり、生成品質・正誤比較・敵対的入力・利用量の評価は未完了。実ログイン可能な対応環境を用意し、利用者の指定した利用範囲（任意上限の有無を含む）を記録してから [評価手順](order-api-evaluation.md)で実施する。旧1 USD API予算は流用しない。開発環境の自動テストによる実モデル要求は0件。利用者の実ログインでcorrect候補のplanを1回試みたが実行失敗し、この最初の試行ではplan/runは完了しなかった（その後のplan成功とrunの不具合は下記）（[失敗記録](evaluations/codex-real-attempt-2026-10-27.json)）。CLI内部のmodel turn数・利用量は不明で、0とは記録しない。廃止モデルを指定した設定上の問題を修正し、実測を続ける。#81を完了・自動closeしない。
 

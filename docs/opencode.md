@@ -1,6 +1,8 @@
 # OpenCodeによる実装と通常PR CI
 
-状態: 現行運用。全体の責務・保証の地図は [アーキテクチャ](../ARCHITECTURE.md)、設計基準は [ハーネス設計](harness/design.md) を参照してください。
+状態: 現行運用。全体の責務・保証の地図は [アーキテクチャ](../ARCHITECTURE.md)、設計基準は [ハーネス設計](adr/0002-minimal-development-harness.md) を参照してください。
+
+設計判断は [ADR 0003](adr/0003-delegate-development-automation.md) を参照してください。
 
 ## 構成と有効化前の準備
 
@@ -76,6 +78,10 @@ concurrencyは認可済みのimplement jobだけに設定し、Issue依頼・PR�
 2. レビュー後にこの変更をmainへマージする。旧workflow、`.github/automation/`、旧専用チェックを同時に削除し、通常運用を旧prepare/run/publish・proposal schemaへ依存させない。
 3. 上記準備を済ませ、承認済み試験で動作確認する。不要になった旧Secrets・artifact/cacheは管理者が保存方針を確認して整理する。コードの削除だけでは既存データやSecretは消えない。
 4. 問題時は新workflowを無効化して実行をCancelする。既存PRは保持し、手動開発＋通常CIを使う。旧構成へ戻す必要がある場合はこの移行commitをrevertするレビュー付きPRを作り、旧実行環境・Secrets・費用上限を再点検してから有効化する。新旧を同時稼働せず、新成果を旧publisherに渡さない。他人のブランチを上書きしない。
+
+## 指示変更の比較評価
+
+共通ルールは [AGENTS](../AGENTS.md)、準備・検証・PR前の文書更新は [開発手順](development.md)、[連携指示](../.github/opencode/instructions.md) はOpenCode固有の差分だけを持ちます。削減理由は [ADR 0005](adr/0005-evaluate-instruction-simplification.md)、変更前後の条件固定・実行と判定は [ハーネス評価](harness/evaluation.md) を参照してください。default branchから指示を読むため、PR headの変更だけでは比較できません。実モデルの比較は未実施で、下記の実動確認も今回の文書チェックとは別です。
 
 ## 確認した資料と残る実動確認
 

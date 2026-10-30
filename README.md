@@ -4,7 +4,7 @@ Latchは、AIが生成したコードをGitHub IssueやPRの要件と照合し�
 
 現在は開発基盤、ヘルプ表示、`latch verify` の入力解決（リポジトリ境界・base・差分・Issueファイル）、`latch plan` による要件抽出・既存Vitestテスト候補と不足シナリオの計画、`latch run` によるVitestテスト生成・隔離実行・実行証拠の収集と、要件→テスト→証拠を対応づけたテキスト／JSONレポートを提供しています。Markdownファイル出力・CI連携・GitHub PR投稿はまだ実装していません。
 
-製品は既存の公式ツール・標準機能を優先し、自前実装と資格情報管理を減らす方針です。責務の分担は [製品方針](docs/product-vision.md#自前実装を最小化する原則) を参照してください。[#81の公式CLI接続](docs/official-cli.md) はCodex CLI 0.163.0に対応します。対応環境と [#81の受け入れ条件・証拠](docs/issue-81-acceptance.md) を参照してください。
+製品は既存の公式ツール・標準機能を優先し、自前実装と資格情報管理を減らす方針です。責務の分担は [製品方針](docs/product-vision.md#自前実装を最小化する原則) を参照してください。[#81の公式CLI接続](docs/official-cli.md) はCodex CLI 0.163.0に対応します。対応環境と [検証範囲と残る課題](docs/order-api-evaluation.md#完了した実correctbuggy比較と検証範囲) を参照してください。
 
 ## 使用技術
 
@@ -138,7 +138,7 @@ node dist/cli.mjs run --plan latch-plan.json \
 - 実装・検証・通常PRの作成: [開発手順](docs/development.md)
 - AIの作業開始: [AGENTS.md](AGENTS.md)
 - OpenCodeの起動・停止・権限・費用: [運用手順](docs/opencode.md)
-- 開発ハーネスの設計・評価・改善: [設計方針](docs/harness/design.md)
+- 開発ハーネスの設計・評価・改善: [設計方針](docs/adr/0002-minimal-development-harness.md)
 
 開発環境は `node scripts/check-environment.ts` で確認できます。これはバージョンと依存の読取検査であり、テストの成功や隔離の安全性を判定するものではありません。準備・失敗時の手順は [開発手順](docs/development.md) を参照してください。
 
