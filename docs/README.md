@@ -4,17 +4,23 @@
 
 ## 開発ハーネスで使う資料
 
-| 資料                                  | 必要になる作業・保持理由                                                                |
-| ------------------------------------- | --------------------------------------------------------------------------------------- |
-| [開発手順](development.md)            | 実装・PR修正の基本資料。環境準備、検証、PR規則の正本を一本化する                        |
-| [Issue設計](issue-design.md)          | Issue設計・登録時のみ。要件と受け入れ条件、テンプレートの使い方を確認する               |
-| [OpenCode運用](opencode.md)           | OpenCode利用・保守時のみ。起動権限、費用、停止・再依頼を確認する                        |
-| [CI保守](ci.md)                       | workflow変更・CI障害調査時のみ。Action/OSの採用理由と未検証事項を確認する               |
-| [ハーネス設計](harness/design.md)     | ハーネス改善時のみ。一次資料、採用理由、強制箇所を確認する                              |
-| [ハーネス評価](harness/evaluation.md) | ハーネス改善の評価時のみ。代表ケース、採点、証拠の記録方法を確認する                    |
-| [進行計画](harness/plan.md)           | #76の継続作業・中断再開時。判断と次の操作を引き継ぐ。一般的な実装の進捗はIssue/PRに残す |
+| 資料                                  | 必要になる作業・保持理由                                                  |
+| ------------------------------------- | ------------------------------------------------------------------------- |
+| [開発手順](development.md)            | 実装・PR修正の基本資料。環境準備、検証、PR規則の正本を一本化する          |
+| [Issue設計](issue-design.md)          | Issue設計・登録時のみ。要件と受け入れ条件、テンプレートの使い方を確認する |
+| [OpenCode運用](opencode.md)           | OpenCode利用・保守時のみ。起動権限、費用、停止・再依頼を確認する          |
+| [CI保守](ci.md)                       | workflow変更・CI障害調査時のみ。Action/OSの採用理由と未検証事項を確認する |
+| [設計判断（ADR）](adr/README.md)      | 設計変更時。背景・決定・代替案・影響を主題別に確認する                    |
+| [ハーネス評価](harness/evaluation.md) | ハーネス改善の評価時のみ。代表ケース、採点、証拠の記録方法を確認する      |
 
-毎回読む対象は依頼に関係する資料だけです。設計・評価・計画の3文書も通常の製品実装では一式読込を要求しません。
+毎回読む対象は依頼に関係する資料だけです。ADR・評価資料も通常の製品実装では一式読込を要求しません。
+
+## 設計判断の索引
+
+- [ADR 0001: 文書の責務](adr/0001-documentation-ownership.md)
+- [ADR 0002: 最小構成の開発ハーネス](adr/0002-minimal-development-harness.md)
+- [ADR 0003: 開発自動化の委譲](adr/0003-delegate-development-automation.md)
+- [ADR 0004: 製品の公式CLI接続](adr/0004-official-model-cli.md)
 
 ## 製品の作業時に参照する資料
 
@@ -37,33 +43,28 @@
 
 以下は通常作業の指示には不要です。比較・障害調査・受け入れ条件のレビュー時だけ参照します。記録されたrevisionと環境の証拠であり、現在の仕様・成功・Issueの状態を保証しません。失敗記録も、改善前後の比較に必要なので残します。
 
-| 資料                                                                         | 保持理由                                                              |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [#81受け入れ条件](issue-81-acceptance.md)                                    | PR #82の要件と実装・自動テスト・実利用証拠の対応表                    |
-| [初回記録](harness/runs/2026-10-25.md)                                       | ハーネス初回整備の条件・証拠・未実施事項                              |
-| [修正前後比較](harness/runs/2026-10-25-followup.md)                          | 環境診断の不具合と固定入力による比較の根拠                            |
-| [再開記録](harness/runs/2026-10-25-resume.md)                                | 別セッションでの再開経路と不足の根拠                                  |
-| [環境診断比較JSON](harness/runs/environment-regression-2026-10-25.json)      | 修正前後のケース・trial・終了結果                                     |
-| [再開時の診断JSON](harness/runs/environment-resume-2026-10-25.json)          | 再開環境の診断結果。エージェント完了率には使わない                    |
-| [旧HTTP固定応答](evaluations/order-api-fixed-2026-10-25.json)                | 廃止したHTTP接続時の製品回帰の比較基準                                |
-| [旧CLI固定応答](evaluations/order-api-cli-fixed-2026-10-26.json)             | 旧Claude接続時の製品回帰の比較基準                                    |
-| [Codex固定応答](evaluations/order-api-codex-fixed-2026-10-26.json)           | Codex接続の全工程回帰。実モデル品質の証拠とは区別                     |
-| [WSL起動検査](evaluations/wsl2-startup-2026-10-27.json)                      | WSL上の自動テスト・公式CLI起動の証拠                                  |
-| [実plan失敗](evaluations/codex-real-attempt-2026-10-27.json)                 | 実モデル利用の初回失敗と取得不能情報                                  |
-| [実plan・run失敗](evaluations/codex-real-plan-run-2026-10-27.json)           | 要件計画の成功と証拠ID重複によるrun失敗                               |
-| [実correctの誤検出](evaluations/codex-real-correct-run-2026-10-27.json)      | ソース入力改善前の誤検出の比較基準                                    |
-| [ソース入力後の実比較](evaluations/codex-real-source-inputs-2026-10-28.json) | correct/buggy比較、改善前の停止、残る品質課題                         |
-| [旧自動化の委譲記録](archive/automation-delegation.md)                       | #64で削除した独自基盤と公式連携の責務の対応。現行の運用規則にはしない |
-| [旧横断検証](archive/ai-development-validation.md)                           | 廃止済みコード・テストの当時のrevisionと検証範囲                      |
+| 資料                                                                         | 保持理由                                           |
+| ---------------------------------------------------------------------------- | -------------------------------------------------- |
+| [初回記録](harness/runs/2026-10-25.md)                                       | ハーネス初回整備の条件・証拠・未実施事項           |
+| [修正前後比較](harness/runs/2026-10-25-followup.md)                          | 環境診断の不具合と固定入力による比較の根拠         |
+| [再開記録](harness/runs/2026-10-25-resume.md)                                | 別セッションでの再開経路と不足の根拠               |
+| [環境診断比較JSON](harness/runs/environment-regression-2026-10-25.json)      | 修正前後のケース・trial・終了結果                  |
+| [再開時の診断JSON](harness/runs/environment-resume-2026-10-25.json)          | 再開環境の診断結果。エージェント完了率には使わない |
+| [旧HTTP固定応答](evaluations/order-api-fixed-2026-10-25.json)                | 廃止したHTTP接続時の製品回帰の比較基準             |
+| [旧CLI固定応答](evaluations/order-api-cli-fixed-2026-10-26.json)             | 旧Claude接続時の製品回帰の比較基準                 |
+| [Codex固定応答](evaluations/order-api-codex-fixed-2026-10-26.json)           | Codex接続の全工程回帰。実モデル品質の証拠とは区別  |
+| [WSL起動検査](evaluations/wsl2-startup-2026-10-27.json)                      | WSL上の自動テスト・公式CLI起動の証拠               |
+| [実plan失敗](evaluations/codex-real-attempt-2026-10-27.json)                 | 実モデル利用の初回失敗と取得不能情報               |
+| [実plan・run失敗](evaluations/codex-real-plan-run-2026-10-27.json)           | 要件計画の成功と証拠ID重複によるrun失敗            |
+| [実correctの誤検出](evaluations/codex-real-correct-run-2026-10-27.json)      | ソース入力改善前の誤検出の比較基準                 |
+| [ソース入力後の実比較](evaluations/codex-real-source-inputs-2026-10-28.json) | correct/buggy比較、改善前の停止、残る品質課題      |
 
 [旧開発fixture](../fixtures/ai-development/README.md) は旧横断検証の履歴です。現行の製品評価には注文API fixtureを使います。
 
-旧URLの [Issue to Draft PR](issue-draft-pr.md)、[委譲記録](automation-delegation.md)、[横断検証](ai-development-validation.md) は移動・廃止の案内だけを残します。ハーネスの参照先には追加しません。
-
 ## 維持のルール
 
-2026-10-30にdocs内の全33ファイルを棚卸ししました。基本手順7件、製品資料8件、証拠・履歴16件、旧URL案内1件、索引1件を分類し、旧履歴2件はarchiveへ移して旧URL案内を残しました。製品資料や証拠を「毎回読む必要がない」という理由だけで削除せず、正本・比較根拠・参照元が必要かで判断します。
+設計判断は [ADR](adr/README.md)、Issue/PRの進捗・受け入れ確認・引き継ぎはIssue/PR本文・コメントに残します。Issue/PR単位のファイルと旧URL案内は廃止し、過去の内容はGit履歴で確認します。PR作成前に関連文書を更新する手順は [開発手順](development.md) を正本とします。
 
 詳細の正本は上表の資料とし、README・AGENTS・連携指示は入口と必要な要約にします。新規文書は用途・正本・読む場面を決め、既存資料で足りるなら統合します。同じルール・進捗・実測を複製しません。仕様は「実装済み」「合意済み・未実装」「検討中」、履歴は対象revisionと当時の状態を示します。
 
-文書を移す場合は参照先と必要な旧URL案内を更新します。通常テストのリンク検査はGit管理・未追跡の非ignore Markdownのローカルファイル参照を確認します。外部URL・見出しアンカー・コマンドの意味や鮮度は保証外なので、関連変更のレビューで確認します。
+文書を移す場合はリポジトリ内の参照先と索引を更新します。通常テストのリンク検査はGit管理・未追跡の非ignore Markdownのローカルファイル参照を確認します。外部URL・見出しアンカー・コマンドの意味や鮮度は保証外なので、関連変更のレビューで確認します。

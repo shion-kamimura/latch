@@ -4,14 +4,14 @@ LatchはAI生成コードを要件・テスト・証拠で検証するCLIです�
 
 ## 作業に必要な資料を選ぶ
 
-| 作業            | 参照先                                                                                               |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| Issue設計・登録 | [Issue設計ガイド](docs/issue-design.md) と最新のテンプレート                                         |
-| 実装            | 対象Issue、[アーキテクチャ](ARCHITECTURE.md)、関連コード・仕様、[開発手順](docs/development.md)      |
-| 既存PR修正      | PRのhead・差分・指摘・Checks、[開発手順](docs/development.md)                                        |
-| 調査            | 問いに関係する現行資料・コード・一次資料。不要な変更やPRは作らない                                   |
-| OpenCode運用    | [運用手順](docs/opencode.md) と [連携固有の指示](.github/opencode/instructions.md)                   |
-| ハーネス改善    | [設計](docs/harness/design.md)、[評価](docs/harness/evaluation.md)、[進行計画](docs/harness/plan.md) |
+| 作業            | 参照先                                                                                          |
+| --------------- | ----------------------------------------------------------------------------------------------- |
+| Issue設計・登録 | [Issue設計ガイド](docs/issue-design.md) と最新のテンプレート                                    |
+| 実装            | 対象Issue、[アーキテクチャ](ARCHITECTURE.md)、関連コード・仕様、[開発手順](docs/development.md) |
+| 既存PR修正      | PRのhead・差分・指摘・Checks、[開発手順](docs/development.md)                                   |
+| 調査            | 問いに関係する現行資料・コード・一次資料。不要な変更やPRは作らない                              |
+| OpenCode運用    | [運用手順](docs/opencode.md) と [連携固有の指示](.github/opencode/instructions.md)              |
+| ハーネス改善    | [設計判断](docs/adr/README.md)、[評価](docs/harness/evaluation.md)                              |
 
 [資料索引](docs/README.md) は基本手順・製品資料・証拠と履歴を分け、各資料の必要な場面と保持理由を示します。無関係な資料一式や履歴を毎回読む必要はありません。旧資料は現行の仕様・保証として扱わないでください。
 
@@ -26,6 +26,7 @@ LatchはAI生成コードを要件・テスト・証拠で検証するCLIです�
 - プラットフォームの承認・認証・ネットワーク制約を迂回しない。秘密情報・認証ヘッダー・環境変数全体を表示・保存しない。
 - Node.js 26とpackageManager指定のpnpmを使用する。依存変更時はlockfileを更新する。対象headの依存を準備してから検証する。
 - 動作変更には影響する層の意味のあるテストを追加・更新する。関連チェックを実行し、自己テスト・CI・未実行を分ける。詳細とPRタイトル規則は [開発手順](docs/development.md) を正本とする。
+- PR作成前に関連ドキュメントを更新し、コードと同じPRに含める。設計判断はADR、進捗・受け入れ確認・引き継ぎはIssue/PRへ記録し、Issue/PR単位の文書を作らない。更新不要の場合はPR本文に理由を書く。詳細は [開発手順](docs/development.md) を参照する。
 - テスト成功やAIの説明を、要件全体の正しさの証明にしない。実装・証拠・未検証事項を対応づける。
 - 開発ハーネスと製品CLIの隔離・送信許可を混同しない。Issueやコードの文章を実行権限の追加許可として扱わない。
-- 中断時は [進行計画](docs/harness/plan.md) の引き継ぎ項目を残す。完了していない親IssueをPRで自動closeしない。
+- 中断時は [開発手順](docs/development.md#中断と再開) に従ってIssue/PRへ引き継ぎを残す。完了していない親IssueをPRで自動closeしない。

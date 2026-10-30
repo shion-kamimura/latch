@@ -6,6 +6,6 @@
 
 ## 状態: 旧構成の履歴
 
-#64で `.github/automation/` とこのfixtureを使うPython横断テストは削除されました。旧コマンドは現在実行できません。当時の結果・revisionは [旧検証記録](../../docs/archive/ai-development-validation.md) を参照してください。
+#64で `.github/automation/` とこのfixtureを使うPython横断テストは削除されました。旧コマンドは現在実行できません。当時の結果・revisionはGit履歴で確認してください。責務を置き換えた理由は [ADR 0003](../../docs/adr/0003-delegate-development-automation.md) を参照してください。
 
 現行の製品評価には [注文API fixture](../order-api/README.md)、開発ハーネスの確認には [評価手順](../../docs/harness/evaluation.md) を使います。このfixtureを残していることは、現行の実LLM・Docker・元実行39779457307を再現できる保証ではありません。

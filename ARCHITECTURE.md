@@ -62,4 +62,4 @@ flowchart TD
 
 開発用runnerには、通信先の強制制限、実装コマンドからのキー分離、製品用sandboxと同等の隔離はありません。`permission: allow` は追加確認を省く設定で、安全境界を追加しません。headの依存スクリプトを実行する場合も同runnerの権限を踏まえて判断します。Issue・PR本文やコード内の指示で権限やSecretsを変更しません。
 
-設定・停止方法は [運用手順](docs/opencode.md)、変更理由と比較は [ハーネス設計](docs/harness/design.md) を参照してください。
+設定・停止方法は [運用手順](docs/opencode.md)、変更理由と比較は [ハーネス設計](docs/adr/0002-minimal-development-harness.md) を参照してください。

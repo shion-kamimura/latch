@@ -1,6 +1,8 @@
 # OpenCodeによる実装と通常PR CI
 
-状態: 現行運用。全体の責務・保証の地図は [アーキテクチャ](../ARCHITECTURE.md)、設計基準は [ハーネス設計](harness/design.md) を参照してください。
+状態: 現行運用。全体の責務・保証の地図は [アーキテクチャ](../ARCHITECTURE.md)、設計基準は [ハーネス設計](adr/0002-minimal-development-harness.md) を参照してください。
+
+設計判断は [ADR 0003](adr/0003-delegate-development-automation.md) を参照してください。
 
 ## 構成と有効化前の準備
 
