@@ -10,8 +10,27 @@ permissions:
 
 jobs:
   checks:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Lint
+            command: pnpm lint
+          - name: Typecheck
+            command: pnpm typecheck
+          - name: Format
+            command: pnpm format:check
+          - name: Unit tests
+            command: pnpm test:unit
+          - name: Integration tests
+            command: pnpm test:integration
+          - name: Build
+            command: pnpm build
+          - name: CLI E2E
+            command: pnpm test:e2e
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v6
@@ -19,16 +38,12 @@ jobs:
         with:
           node-version: '26'
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Check development environment
         run: node scripts/check-environment.ts
-      - name: Lint
-        run: pnpm lint
-      - name: Typecheck
-        run: pnpm typecheck
-      - name: Format check
-        run: pnpm format:check
-      - name: Unit, integration, and CLI E2E tests (build before E2E)
-        run: pnpm test
-      - name: Build
+      - name: Build CLI for E2E
+        if: matrix.name == 'CLI E2E'
         run: pnpm build
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.command }}

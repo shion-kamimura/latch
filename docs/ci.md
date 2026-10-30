@@ -25,7 +25,10 @@ Node.js 24対応の各Actionはrunner v2.327.1以上を要求します。本リ�
 
 ## 維持する実行内容
 
-- `ci.yml` は `pnpm install --frozen-lockfile` の後、Lint、Typecheck、Format check、`pnpm test`、Buildをこの順で実行する。
+- `ci.yml` はmatrixで Lint / Typecheck / Format / Unit tests / Integration tests / Build / CLI E2E の7ジョブを独立実行する。PRのChecks欄にそれぞれの名前で結果を表示し、`fail-fast: false` により他のチェックが失敗しても実行を継続する。ジョブ間の依存は設けない。
+- 各ジョブでcheckout、Node.js 26・pnpmの準備、`pnpm install --frozen-lockfile`、開発環境チェックを行う。Unit・Integration・E2Eはそれぞれ `pnpm test:unit` / `pnpm test:integration` / `pnpm test:e2e` で実行する。
+- CLI E2Eだけは実行前に独立したステップで `pnpm build` を行う。Buildジョブとは重複するが、artifact受け渡しやジョブ間依存を追加せず、ビルド失敗とE2E失敗をログで区別する。`pnpm test:e2e` 単独ではビルドしない。
+- 必須チェックに旧 `checks` を指定している場合は、新しいチェック名への切り替えが必要。リポジトリのルール設定は別途確認・変更する。
 - `pnpm test` は `vitest run --project unit --project integration` → `pnpm build` → `vitest run --project e2e` の順で、Unit・Integration → Build → CLI E2Eの順序を維持する。
 - `opencode.yml` の `authorize` / `implement` の分離、write / maintain / adminの権限照合、`OPENCODE_ENABLED` の起動条件、`id-token: write` をimplementだけに与える構成、`use_github_token: false`、`persist-credentials: false`、concurrency、固定モデルと環境変数は変更しない。変更するのはrunnerとActionの版だけとする。
 
