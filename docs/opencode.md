@@ -79,6 +79,10 @@ concurrencyは認可済みのimplement jobだけに設定し、Issue依頼・PR�
 3. 上記準備を済ませ、承認済み試験で動作確認する。不要になった旧Secrets・artifact/cacheは管理者が保存方針を確認して整理する。コードの削除だけでは既存データやSecretは消えない。
 4. 問題時は新workflowを無効化して実行をCancelする。既存PRは保持し、手動開発＋通常CIを使う。旧構成へ戻す必要がある場合はこの移行commitをrevertするレビュー付きPRを作り、旧実行環境・Secrets・費用上限を再点検してから有効化する。新旧を同時稼働せず、新成果を旧publisherに渡さない。他人のブランチを上書きしない。
 
+## 指示変更の比較評価
+
+共通ルールは [AGENTS](../AGENTS.md)、準備・検証・PR前の文書更新は [開発手順](development.md)、[連携指示](../.github/opencode/instructions.md) はOpenCode固有の差分だけを持ちます。削減理由は [ADR 0005](adr/0005-evaluate-instruction-simplification.md)、変更前後の条件固定・実行と判定は [ハーネス評価](harness/evaluation.md) を参照してください。default branchから指示を読むため、PR headの変更だけでは比較できません。実モデルの比較は未実施で、下記の実動確認も今回の文書チェックとは別です。
+
 ## 確認した資料と残る実動確認
 
 2026-10-24に公式[GitHub連携文書](https://opencode.ai/docs/github/)、[v1.19.4 Action](https://github.com/anomalyco/opencode/blob/148842ef7cb1bc34192b3fff57d0f9721ab9c801/github/action.yml)、同版の [GitHub handler](https://github.com/anomalyco/opencode/blob/148842ef7cb1bc34192b3fff57d0f9721ab9c801/packages/opencode/src/cli/cmd/github.handler.ts) を確認しました。Actionは完全SHA固定ですが、内側でlatest releaseを調べ、公式installスクリプトからCLIを取得します。CLI本体・内側のAction参照まで固定した構成ではありません。`autoupdate: false` はこの初回取得を固定しません。版更新時や再有効化時には実際のCLI版をログで記録し、この互換性を再確認します。

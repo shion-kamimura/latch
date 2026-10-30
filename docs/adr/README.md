@@ -2,12 +2,13 @@
 
 設計上の重要な選択と理由を、Issue・PRの寿命から独立して残します。現行の使い方は仕様・運用手順を正本とします。
 
-| ADR                                             | 判断                                                     |
-| ----------------------------------------------- | -------------------------------------------------------- |
-| [0001](0001-documentation-ownership.md)         | 設計判断はADR、進捗・受け入れ確認はIssue/PRで管理する    |
-| [0002](0002-minimal-development-harness.md)     | 短い入口と必要時の参照で開発ハーネスを構成する           |
-| [0003](0003-delegate-development-automation.md) | 開発の自動化を公式OpenCode連携とGitHub標準機能へ委譲する |
-| [0004](0004-official-model-cli.md)              | 製品のモデル接続・認証を公式Codex CLIへ委譲する          |
+| ADR                                                 | 判断                                                       |
+| --------------------------------------------------- | ---------------------------------------------------------- |
+| [0001](0001-documentation-ownership.md)             | 設計判断はADR、進捗・受け入れ確認はIssue/PRで管理する      |
+| [0002](0002-minimal-development-harness.md)         | 短い入口と必要時の参照で開発ハーネスを構成する             |
+| [0003](0003-delegate-development-automation.md)     | 開発の自動化を公式OpenCode連携とGitHub標準機能へ委譲する   |
+| [0004](0004-official-model-cli.md)                  | 製品のモデル接続・認証を公式Codex CLIへ委譲する            |
+| [0005](0005-evaluate-instruction-simplification.md) | 指示を正本へ集約し、実運用のモデル＋ハーネスで比較評価する |
 
 ## 書き方
 

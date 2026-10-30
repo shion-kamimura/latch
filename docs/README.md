@@ -21,6 +21,7 @@
 - [ADR 0002: 最小構成の開発ハーネス](adr/0002-minimal-development-harness.md)
 - [ADR 0003: 開発自動化の委譲](adr/0003-delegate-development-automation.md)
 - [ADR 0004: 製品の公式CLI接続](adr/0004-official-model-cli.md)
+- [ADR 0005: 指示の集約と実運用での比較評価](adr/0005-evaluate-instruction-simplification.md)
 
 ## 製品の作業時に参照する資料
 
